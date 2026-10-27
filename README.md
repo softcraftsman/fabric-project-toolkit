@@ -83,8 +83,8 @@ synthetic protocol and fresh-session behavior after client upgrades.
 Keep business data out of the project folder and out of pasted prompts; the
 guard cannot see those paths.
 
-An HTML summary of the risks addressed and not addressed is in
-[docs\risk-overview.html](docs/risk-overview.html).
+View the [risk overview and data-flow diagram](https://softcraftsman.github.io/fabric-project-toolkit/risk-overview.html)
+for the risks addressed and not addressed by the plugin.
 
 ## Set up a project
 
