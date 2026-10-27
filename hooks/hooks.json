@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "exec": "powershell.exe",
+        "args": [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "try { $ErrorActionPreference = 'Stop'; & (Join-Path $env:COPILOT_PLUGIN_ROOT 'hooks\\Invoke-PrivacyGuard.ps1') } catch { [Console]::Out.WriteLine('{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"CLI_GUARD_FAILURE\"}'); exit 0 }"
+        ],
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
