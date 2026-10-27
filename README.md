@@ -57,23 +57,24 @@ for those categories: withhold them pending a separately reviewed extension.
 
 ## Requirements
 
-Use Python 3.12 or later and PowerShell 7 (`pwsh`) on Windows. The plugin uses
+Use Python 3.12 or later, Git, and PowerShell 7 (`pwsh`) on Windows. The plugin uses
 the Python standard library; no dependency installation is needed.
 Use a Copilot CLI version supporting plugin command hooks and check the
 synthetic protocol and fresh-session behavior after client upgrades.
 
 ## Add to a new project (checklist)
 
-1. **Install once per machine:** `copilot plugin install C:\Fabric\fabric-project-toolkit`.
-2. **Initialize the project** from a human terminal:
-   `python -I C:\Fabric\fabric-project-toolkit\tools\project_setup.py init --project <project root>`.
+1. **Install from GitHub:** `copilot plugin install softcraftsman/fabric-project-toolkit`.
+2. **Get the setup utilities and initialize the project** from a human terminal,
+   following [Set up a project](#set-up-a-project) below:
+   `python -I "$ToolkitRoot\tools\project_setup.py" init --project "$ProjectRoot"`.
    This creates `<project>\.copilot-privacy\` containing `policy.json`,
    `advisory.code-profile`, and `guidance.txt`. It refuses to run if that folder
    already exists and changes nothing else. Commit `.copilot-privacy\policy.json`
    only after review; it lists file names and digests, never contents.
 3. **Classify files** the agent may read (see below). Unclassified files stay
    blocked.
-4. **Run preflight:** `... project_setup.py preflight --project <project root>`.
+4. **Run preflight:** `python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"`.
 5. **Optional, VS Code:** manually import `.copilot-privacy\advisory.code-profile`
    (Profiles: Import Profile) and select it for the project window.
 6. **Start a fresh CLI session from the project root**, confirm the plugin and
@@ -89,20 +90,41 @@ An HTML summary of the risks addressed and not addressed is in
 
 Run setup and classification from a **human terminal**, not through the agent.
 Keep the plugin directory separate from the target project's working tree.
+Install the plugin from
+[softcraftsman/fabric-project-toolkit](https://github.com/softcraftsman/fabric-project-toolkit),
+then clone the same repository for its human-operated setup utilities. No path
+on the author's machine is required; the utilities run locally on each user's
+machine.
 
 ```powershell
-copilot plugin install C:\Fabric\fabric-project-toolkit
-python -I C:\Fabric\fabric-project-toolkit\tools\project_setup.py init --project C:\Projects\Example
+copilot plugin install softcraftsman/fabric-project-toolkit
+
+# Run from the root of the project you want to protect.
+$ProjectRoot = (Get-Location).Path
+# Keep the setup utilities outside that project.
+$ToolkitRoot = Join-Path $HOME 'tools\fabric-project-toolkit'
+New-Item -ItemType Directory -Force -Path (Split-Path $ToolkitRoot -Parent) | Out-Null
+git clone https://github.com/softcraftsman/fabric-project-toolkit.git "$ToolkitRoot"
+python -I "$ToolkitRoot\tools\project_setup.py" init --project "$ProjectRoot"
 ```
+
+GitHub is the installation and distribution source. Setup and approval still
+run locally because they configure and review files in the target project;
+`$ProjectRoot` uses your current directory rather than a fixed drive or path.
+
+If you already have a checkout, set `$ToolkitRoot` to that directory instead
+of cloning again. Keep the setup checkout and installed plugin on the same
+reviewed revision. Access to a private repository requires GitHub authentication
+for both Copilot's installer and Git.
 
 Setup starts with an empty file/task policy. No files are automatically
 approved. Review each file locally to confirm it contains only source code
 without embedded business values or secrets, or genuinely synthetic test data:
 
 ```powershell
-python -I C:\Fabric\fabric-project-toolkit\tools\privacy_guard.py approve --project C:\Projects\Example --path src\example.py --category source --reviewed
-python -I C:\Fabric\fabric-project-toolkit\tools\privacy_guard.py approve --project C:\Projects\Example --path tests\test_example.py --category synthetic --reviewed
-python -I C:\Fabric\fabric-project-toolkit\tools\project_setup.py preflight --project C:\Projects\Example
+python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path src\example.py --category source --reviewed
+python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path tests\test_example.py --category synthetic --reviewed
+python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"
 ```
 
 `--reviewed` is a human attestation, not a content scanner or proof of safety.
@@ -117,12 +139,49 @@ environment views. A successful installation or static preflight does not prove
 the runtime hook is active. First exercise approved and denied operations using
 synthetic files only. Do not use allow-all modes or disable hooks.
 
-Installed directory plugins may be cached; reinstall after changing plugin
-files and start a fresh session. Temporary CLI loading is also available:
+Update the installed GitHub plugin after reviewing upstream changes, update
+the setup checkout to the corresponding revision, and start a fresh session:
 
 ```powershell
-copilot --plugin-dir C:\Fabric\fabric-project-toolkit
+copilot plugin update fabric-project-toolkit
 ```
+
+For plugin development only, temporary CLI loading from your checkout is also
+available instead of using the installed copy:
+
+```powershell
+copilot --plugin-dir "$ToolkitRoot"
+```
+
+## Uninstall
+
+1. Exit Copilot CLI, then run this from a regular human terminal:
+
+   ```powershell
+   copilot plugin uninstall fabric-project-toolkit
+   ```
+
+2. Optionally delete the target project's `.copilot-privacy` folder after
+   preserving any approval policy you need. If it is tracked in Git, review
+   and commit its removal through your normal process.
+3. If you imported the VS Code advisory profile, switch to another profile
+   and optionally delete the imported profile.
+4. Start a fresh Copilot CLI session. Use `copilot plugin list` to confirm
+   the plugin is no longer installed, and `/env` to inspect loaded hooks.
+
+**Uninstalling removes this plugin's agents and hooks for your CLI user across
+all projects, not just the current project.** Deleting `.copilot-privacy` alone
+does not remove the hooks; the installed guard remains without an approval
+policy. The baseline has no project-specific opt-out.
+
+If you loaded the plugin using `--plugin-dir`, omit that option when restarting;
+uninstalling an installed copy does not stop explicit directory loading.
+No manual hook-file deletion is needed for the baseline installation.
+Separately deployed administrator policy hooks require administrator removal
+and are not removed by uninstalling this plugin.
+
+Removing the guard removes its protections. Keep business data out of Copilot
+context and use your organization's approved controls before resuming work.
 
 ## Reviewed development tasks
 
@@ -150,11 +209,14 @@ From the project root, the hook recognizes only its installed wrapper's exact
 PowerShell command, synchronously:
 
 ```powershell
-python -I 'C:\Fabric\fabric-project-toolkit\tools\privacy_guard.py' run --task test
+python -I '<installed-plugin-root>\tools\privacy_guard.py' run --task test
 ```
 
-For an installed plugin, use the actual cached plugin path in that command,
-not the source directory path. The wrapper does not stream test failures or
+Replace `<installed-plugin-root>` with the actual installed plugin directory
+on that machine (the directory containing `plugin.json`). For an installed
+plugin, use its cached path, not `$ToolkitRoot`, which is the separate setup
+checkout. When using `--plugin-dir`, use that directory instead.
+The wrapper does not stream test failures or
 other child output into model context. Investigate detailed failures locally,
 then provide a separately reviewed synthetic reproduction.
 
