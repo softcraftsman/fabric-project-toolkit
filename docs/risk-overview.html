@@ -60,10 +60,10 @@
 
 <section>
   <h2>The balance in one view</h2>
-  <p class="lead">The plugin narrows what an agent can touch to files a person has reviewed, and keeps the productive parts of the workflow.</p>
+  <p class="lead">The plugin trusts the curated project tree, reviews access to external files, and keeps the productive parts of the workflow.</p>
   <div class="grid">
     <div class="card stat"><b>Default deny</b><span>Unknown tools, connectors, skills, delegation and arbitrary shell commands are blocked on the CLI hook path</span></div>
-    <div class="card stat"><b>Human-reviewed</b><span>Only individually classified source or synthetic files are readable, and only while their content digest still matches</span></div>
+    <div class="card stat"><b>Root trust</b><span>Project files need no entries or hashes. Only external files require individual human approval and matching SHA-256 digests</span></div>
     <div class="card stat"><b>Status only</b><span>Approved tasks (for example tests) report pass/fail, not raw output, to the model</span></div>
     <div class="card stat"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
   </div>
@@ -86,7 +86,7 @@
   <div class="card">
   <svg viewBox="0 0 1000 520" role="img" aria-labelledby="dfTitle dfDesc" style="width:100%;height:auto;font-family:'Segoe UI',system-ui,sans-serif">
     <title id="dfTitle">Data flow between Fabric, the developer machine and the AI model service</title>
-    <desc id="dfDesc">The Fabric MCP and API connector has a separate red path denied by the CLI privacy guard. Lakehouse and Warehouse data, semantic models and reports, and notebook outputs and run results combine into a dotted local-export path. Human exports can reach the developer machine, but agent reads of unclassified files are denied. Reviewed source and synthetic files and task status pass through to the agent and then to the model. Pasted prompts, attachments and VS Code context are not screened.</desc>
+    <desc id="dfDesc">The Fabric MCP and API connector has a separate red path denied by the CLI privacy guard. The other three data sources combine into a dotted export path. Outside the project, unapproved or changed files are denied. Inside the project, ordinary files are trusted without hashes, so business-data exports must be kept out. Approved external source and synthetic files require matching digests. Protected control paths remain blocked. Pasted prompts, attachments and VS Code context are not screened.</desc>
     <defs>
       <marker id="ag" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#1a7f4b"/></marker>
       <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#b42318"/></marker>
@@ -118,13 +118,13 @@
       <text x="42" y="380" font-weight="600">Item definitions (Git)</text><text x="42" y="398" font-size="11" fill="#5a6572">Code only, no data</text>
 
       <rect x="315" y="135" width="180" height="52" rx="6" fill="#fff" stroke="#b42318"/>
-      <text x="325" y="155" font-weight="600">Exports, extracts, logs</text><text x="325" y="173" font-size="11" fill="#5a6572">Unclassified files</text>
+      <text x="325" y="155" font-weight="600">External exports / logs</text><text x="325" y="173" font-size="11" fill="#5a6572">Outside project, not approved</text>
       <rect x="315" y="225" width="180" height="52" rx="6" fill="#fff" stroke="#1a7f4b"/>
-      <text x="325" y="245" font-weight="600">Reviewed files</text><text x="325" y="263" font-size="11" fill="#5a6572">Source or synthetic only</text>
+      <text x="325" y="245" font-weight="600">Project / approved external</text><text x="325" y="263" font-size="11" fill="#5a6572">Only external files are hashed</text>
       <rect x="315" y="315" width="180" height="52" rx="6" fill="#fff" stroke="#1a7f4b"/>
       <text x="325" y="335" font-weight="600">Reviewed task runner</text><text x="325" y="353" font-size="11" fill="#5a6572">Runs tests, returns status only</text>
       <rect x="315" y="395" width="180" height="40" rx="6" fill="#fff" stroke="#5a6572"/>
-      <text x="325" y="412" font-weight="600">Human approval step</text><text x="325" y="427" font-size="11" fill="#5a6572">Classifies files locally</text>
+      <text x="325" y="412" font-weight="600">External file approval</text><text x="325" y="427" font-size="11" fill="#5a6572">Human review + SHA-256</text>
 
       <rect x="555" y="62" width="135" height="46" rx="6" fill="#fff" stroke="#5a6572"/>
       <text x="565" y="82" font-weight="600">Developer</text><text x="565" y="98" font-size="11" fill="#5a6572">Prompts, pasted text</text>
@@ -137,7 +137,7 @@
 
       <rect x="745" y="190" width="220" height="170" rx="6" fill="#fff" stroke="#b42318" stroke-width="1.5"/>
       <text x="757" y="212" font-weight="600">Model receives</text>
-      <text x="757" y="232" font-size="11" fill="#1a7f4b">Allowed: reviewed code</text>
+      <text x="757" y="232" font-size="11" fill="#1a7f4b">Allowed: project files</text>
       <text x="757" y="248" font-size="11" fill="#1a7f4b">Allowed: synthetic data</text>
       <text x="757" y="264" font-size="11" fill="#1a7f4b">Allowed: pass / fail status</text>
       <text x="757" y="288" font-size="11" fill="#b42318">Must not receive: PHI / PII</text>
@@ -155,7 +155,7 @@
       <line x1="260" y1="95" x2="508" y2="95" stroke="#b42318" stroke-width="2.5" marker-end="url(#ar)"/>
       <text x="300" y="89" fill="#b42318">Connector tools: denied</text>
       <line x1="495" y1="161" x2="508" y2="161" stroke="#b42318" stroke-width="2.5" marker-end="url(#ar)"/>
-      <text x="400" y="203" fill="#b42318">Unclassified: denied</text>
+      <text x="360" y="203" fill="#b42318">External, unapproved: denied</text>
 
       <line x1="270" y1="161" x2="313" y2="161" stroke="var(--amber)" stroke-width="2" stroke-dasharray="5 3" marker-end="url(#aa)"/>
       <text x="275" y="150" fill="var(--amber)">export</text>
@@ -178,7 +178,7 @@
     <circle cx="525" cy="161" r="9" fill="#b42318"/><text x="525" y="165" font-size="12" font-weight="700" fill="#fff" text-anchor="middle">✕</text>
 
     <g font-size="11" fill="#1b1f24">
-      <line x1="20" y1="474" x2="50" y2="474" stroke="#1a7f4b" stroke-width="2.5"/><text x="56" y="478">Allowed path (reviewed content)</text>
+      <line x1="20" y1="474" x2="50" y2="474" stroke="#1a7f4b" stroke-width="2.5"/><text x="56" y="478">Allowed (root / external approval)</text>
       <line x1="270" y1="474" x2="300" y2="474" stroke="#b42318" stroke-width="2.5"/><text x="306" y="478">Blocked by the guard</text>
       <line x1="450" y1="474" x2="480" y2="474" stroke="#9a6700" stroke-width="2" stroke-dasharray="5 3"/><text x="486" y="478">Not covered by the guard</text>
       <text x="680" y="478" fill="#5a6572">Scope: Windows Copilot CLI tool calls</text>
@@ -186,7 +186,7 @@
     </g>
   </svg>
   </div>
-  <p class="lead" style="margin-top:10px">Reading the diagram: the red connector path is separate from the amber connection that combines the three data sources into the dotted local-export path. Exports are outside the guard until the agent tries to read the file, when unclassified reads are denied. Git item definitions follow a separate human-reviewed source-code route. The guard intercepts Copilot CLI tool calls, not Fabric itself; it does not screen pasted prompts or attachments, or govern VS Code Copilot. Dashed paths are outside its coverage.</p>
+  <p class="lead" style="margin-top:10px">Reading the diagram: the red connector path is separate from the amber export path. External files require individual approval and matching digests before reads or edits. Ordinary files inside the project, including Git definitions, need no approval entries or hashes. <strong>An export saved inside the project follows the allowed project-file path, even if it contains business data; keep such exports outside the trusted tree.</strong> Policy and plugin control paths remain protected. The guard does not screen pasted prompts, attachments, or VS Code context.</p>
 </section>
 
 <section>
@@ -195,9 +195,9 @@
   <table>
     <thead><tr><th>Risk in a Fabric project</th><th>Control</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td>Agent reads a data extract, export, log or notebook output file</td><td>Reads limited to files a person classified as source or synthetic, matched by SHA-256 digest</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>Agent searches the whole workspace and pulls in matching rows</td><td>Search allowed only against explicitly named, classified files; no directory or glob scope</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>A reviewed file is later changed to include data</td><td>Digest mismatch withholds the file until a person re-reviews it</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent reads an unapproved external extract, export, log or notebook output</td><td>External files require individual source/synthetic approval and matching SHA-256 digest; project files are trusted without hashes</td><td><span class="tag blocked">Blocked externally</span></td></tr>
+      <tr><td>Agent searches directories or uses a glob to pull in matching rows</td><td>Search requires explicit file paths; internal files need no inventory, external files require approval</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>An approved external file is changed</td><td>Digest mismatch blocks reads, searches and edits until human reapproval; internal changes are not checked</td><td><span class="tag blocked">Blocked externally</span></td></tr>
       <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>MCP and connector tools have no baseline approval</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent runs an arbitrary command, script or query and reads the output</td><td>Shell limited to one reviewed-task wrapper; no raw child output returned</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent pulls prior session history or diagnostics that contain data</td><td>History retrieval and unfiltered diagnostics denied</td><td><span class="tag blocked">Blocked</span></td></tr>
@@ -216,6 +216,7 @@
   <table>
     <thead><tr><th>Remaining risk</th><th>Why it remains</th><th>Suggested complement</th></tr></thead>
     <tbody>
+      <tr><td>Business data or secrets are placed inside the project root or its subdirectories</td><td>Project files are trusted without individual registration, content scanning, or hashes; existing policies adopt root trust automatically</td><td><span class="tag open">Open</span> Keep the project tree curated and business data outside it</td></tr>
       <tr><td>A person pastes data into a prompt or attaches a file</td><td>User input is not a tool call</td><td><span class="tag open">Open</span> Training and a clear data-handling rule</td></tr>
       <tr><td>A reviewer approves a file that actually contains PHI/PII</td><td>Approval is a human attestation, not a content scanner</td><td><span class="tag open">Open</span> Second review for classified files; synthetic data standards</td></tr>
       <tr><td>VS Code inline suggestions, open editors and selections</td><td>The CLI hook does not intercept VS Code</td><td><span class="tag open">Open</span> Code-only workspace; administrator-managed policy</td></tr>
@@ -227,40 +228,9 @@
 </section>
 
 <section>
-  <h2>Quantifying the risk (relative score)</h2>
-  <p class="lead">This is a relative score for comparing with and without the plugin. It is not the probability of a breach.</p>
-  <table>
-    <thead><tr><th>Exposure scenario</th><th>Likelihood, no guard (1-5)</th><th>Likelihood, with guard (1-5)</th><th>Impact (1-5)</th><th>Score before</th><th>Score after</th><th>Reduction</th></tr></thead>
-    <tbody>
-      <tr><td>Agent reads an extract, export or output file</td><td>4</td><td>1</td><td>5</td><td>20</td><td>5</td><td>75%</td></tr>
-      <tr><td>Agent queries Fabric through a connector</td><td>3</td><td>1</td><td>5</td><td>15</td><td>5</td><td>67%</td></tr>
-      <tr><td>Agent runs a command and reads the output</td><td>3</td><td>1</td><td>5</td><td>15</td><td>5</td><td>67%</td></tr>
-      <tr><td>Agent retrieves session history or diagnostics</td><td>2</td><td>1</td><td>5</td><td>10</td><td>5</td><td>50%</td></tr>
-      <tr><td>Agent delegates to another agent, skill or browser</td><td>2</td><td>1</td><td>5</td><td>10</td><td>5</td><td>50%</td></tr>
-      <tr><td>A reviewer approves a file that contains PHI/PII</td><td>4</td><td>2</td><td>5</td><td>20</td><td>10</td><td>50%</td></tr>
-      <tr><td>A person pastes data into a prompt or attaches a file</td><td>3</td><td>3</td><td>5</td><td>15</td><td>15</td><td>0%</td></tr>
-      <tr><td>VS Code inline suggestions, open editors, selections</td><td>3</td><td>3</td><td>5</td><td>15</td><td>15</td><td>0%</td></tr>
-      <tr><th>Total</th><th></th><th></th><th></th><th>120</th><th>65</th><th>46%</th></tr>
-    </tbody>
-  </table>
-  <div class="cols" style="margin-top:14px">
-    <div class="card">
-      <strong>How to read it</strong>
-      <ul>
-        <li>Likelihood: 1 rare, 3 plausible in normal work, 5 expected. Impact is 5 for any PHI/PII breach.</li>
-        <li>Score is likelihood times impact. The scenarios cover agent-driven paths. The guard removes most of the largest ones.</li>
-        <li>What remains is mostly human action and unmanaged client paths, which is where complementary controls matter.</li>
-      </ul>
-    </div>
-    <div class="card">
-      <strong>Why this is not a breach percentage</strong>
-      <ul>
-        <li>The likelihood ratings are judgments, not measurements. Your team should adjust them for your environment.</li>
-        <li>A true probability needs incident and near-miss data. This baseline does not record how often the guard denies a call.</li>
-        <li>To get real numbers, count sessions and denied attempts over a pilot period and have security and compliance review them.</li>
-      </ul>
-    </div>
-  </div>
+  <h2>Quantifying the risk</h2>
+  <p class="lead">No measured breach probability or risk-reduction percentage is available for project-root trust.</p>
+  <div class="note">The earlier illustrative 46% score assumed per-file approval and digest checks throughout the project and does not apply to this policy. Project-local exports and later internal-file changes are now open exposure paths. A new assessment must account for project curation, external approvals, connector denials, and unmanaged context paths. Session and denial counts can inform a pilot assessment but do not by themselves measure breach probability.</div>
 </section>
 
 <section>
@@ -269,7 +239,8 @@
     <div class="card">
       <strong>Still works</strong>
       <ul>
-        <li>Reading and editing reviewed source files</li>
+        <li>Reading, creating and editing project files without per-file registration or hashes</li>
+        <li>Reading and editing individually approved external files while their digests match</li>
         <li>Generating and reviewing code, notebooks and pipeline definitions</li>
         <li>Running reviewed tests and builds, with pass/fail reporting</li>
         <li>All nine Fabric solution-building agent roles for design and implementation</li>
@@ -278,7 +249,7 @@
     <div class="card">
       <strong>Deliberately limited</strong>
       <ul>
-        <li>Each file must be classified before the agent can read it</li>
+        <li>Only external files require individual approval and reapproval after changes</li>
         <li>No live Fabric queries or connector tools in the baseline</li>
         <li>Test failures are summarized, not streamed; detail is reviewed locally</li>
         <li>Workflows needing an exception require a separate reviewed extension</li>

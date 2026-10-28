@@ -82,7 +82,7 @@ class PrivacyGuardTests(unittest.TestCase):
         self.assertEqual(guard.check(self.root), {
             "status": "ok", "reason": "POLICY_CHECK_ONLY", "files": 0, "tasks": 0,
         })
-        self.denied("view", {"path": str(self.file)})
+        self.assertEqual(self.decision("view", {"path": str(self.file)}), {})
         self.assertEqual(self.decision("ask_user", {"question": "Review synthetic source?"}), {})
         self.denied("ask_user", {"question": "Review?", "permissionDecision": "allow"})
 
@@ -121,7 +121,7 @@ class PrivacyGuardTests(unittest.TestCase):
         payload["unknown"] = SYNTHETIC
         self.assertEqual(guard.hook(json.dumps(payload))["permissionDecision"], "deny")
 
-    def test_exact_hashed_reads_and_scoped_search(self):
+    def test_project_reads_and_explicit_file_searches(self):
         self.classify()
         for name in ("view", "functions.view"):
             self.assertEqual(self.decision(name, {"path": str(self.file)}), {})
@@ -156,11 +156,11 @@ class PrivacyGuardTests(unittest.TestCase):
         self.denied("view", {"path": "sample.py", "view_range": [True, -1]})
         self.denied("view", {"path": "sample.py", "forceReadLargeFiles": "true"})
 
-    def test_reviewed_edits_only_then_digest_drift_blocks(self):
+    def test_project_files_need_no_inventory_or_digest_even_after_edits(self):
         self.classify()
         self.assertEqual(self.decision("edit", {"path": "sample.py", "old_str": "42", "new_str": "43"}), {})
         self.assertEqual(self.decision("create", {"path": "sample.py", "file_text": "answer = 43\n"}), {})
-        self.denied("create", {"path": "new.py", "file_text": "answer = 43\n"})
+        self.assertEqual(self.decision("create", {"path": "new.py", "file_text": "answer = 43\n"}), {})
         self.denied("edit", {"path": "sample.py", "old_str": "42", "new_str": "43", "move": "new.py"})
         self.file.write_text("answer = 43\n", encoding="utf-8")
         for name, args in (
@@ -168,9 +168,18 @@ class PrivacyGuardTests(unittest.TestCase):
             ("rg", {"pattern": "answer", "paths": "sample.py"}),
             ("edit", {"path": "sample.py", "old_str": "43", "new_str": "44"}),
         ):
-            self.denied(name, args)
-        with self.assertRaisesRegex(guard.PolicyError, "STALE_DIGEST"):
+            self.assertEqual(self.decision(name, args), {})
+        guard.check(self.root)
+        nested = self.root / "src"
+        nested.mkdir()
+        (nested / "new.py").write_text("answer = 44\n", encoding="utf-8")
+        with mock.patch.object(guard, "digest", side_effect=AssertionError("Project file hashed")):
+            self.assertEqual(self.decision("view", {"path": "src\\new.py"}), {})
+            self.assertEqual(self.decision("rg", {"pattern": "answer", "paths": "src\\new.py"}), {})
             guard.check(self.root)
+        self.denied("create", {"path": ".copilot-privacy\\new.json", "file_text": "{}"})
+        self.denied("create", {"path": "missing\\new.py", "file_text": ""})
+        self.denied("create", {"path": "..\\new.py", "file_text": ""})
 
     def test_schema_validation_unknown_fields_types_and_duplicate_paths(self):
         entry = {"path": "sample.py", "category": "source", "sha256": "a" * 64}
@@ -245,6 +254,8 @@ class PrivacyGuardTests(unittest.TestCase):
         with mock.patch.object(Path, "lstat", synthetic_lstat):
             with self.assertRaisesRegex(guard.PolicyError, "LINK_PATH"):
                 guard.classified_path(self.root, "sample.py")
+            with mock.patch.object(Path, "exists", return_value=False):
+                self.denied("create", {"path": "sample.py", "file_text": ""})
 
     def test_no_parent_policy_discovery_and_invalid_root(self):
         child = self.root / "child"
@@ -258,13 +269,12 @@ class PrivacyGuardTests(unittest.TestCase):
             guard.approve(self.root, "sample.py", "source")
         self.assertEqual((self.root / guard.POLICY_PATH).read_bytes(), original)
         result = guard.approve(self.root, "sample.py", "source", reviewed=True)
-        self.assertEqual(result, {"status": "approved", "reason": "HUMAN_ATTESTATION_NOT_SAFETY_PROOF"})
+        self.assertEqual(result, {"status": "trusted", "reason": "PROJECT_ROOT_TRUSTED"})
         self.assertEqual(self.decision("view", {"path": "sample.py"}), {})
         self.file.write_text("answer = 43\n", encoding="utf-8")
         guard.approve(self.root, "sample.py", "synthetic", reviewed=True)
         policy = guard.load_policy(self.root)
-        self.assertEqual(len(policy["files"]), 1)
-        self.assertEqual(policy["files"][0]["category"], "synthetic")
+        self.assertEqual(policy["files"], [])
         self.assertFalse(list((self.root / ".copilot-privacy").glob("update-*")))
         rejected = self.cli("approve", "--project", str(self.root), "--path", SYNTHETIC, "--category", "source")
         self.assertNotEqual(rejected.returncode, 0)
@@ -281,10 +291,11 @@ class PrivacyGuardTests(unittest.TestCase):
         (consumer / ".copilot-privacy" / "policy.json").write_text(
             json.dumps(guard.empty_policy()), encoding="utf-8",
         )
-        (consumer / "synthetic.py").write_text("answer = 42\n", encoding="utf-8")
+        external = self.root / "synthetic.py"
+        external.write_text("answer = 42\n", encoding="utf-8")
         command = [sys.executable, "-I", str(engine)]
         approval = subprocess.run(
-            [*command, "approve", "--project", str(consumer), "--path", "synthetic.py",
+            [*command, "approve", "--project", str(consumer), "--path", str(external),
              "--category", "synthetic", "--reviewed"],
             cwd=consumer, capture_output=True, timeout=15,
         )
@@ -297,7 +308,7 @@ class PrivacyGuardTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0)
         self.assertEqual(json.loads(result.stdout)["files"], 1)
-        (consumer / "synthetic.py").write_text("answer = 43\n", encoding="utf-8")
+        external.write_text("answer = 43\n", encoding="utf-8")
         result = subprocess.run(
             [*command, "check", "--project", str(consumer)], cwd=consumer,
             capture_output=True, timeout=15,
@@ -305,6 +316,45 @@ class PrivacyGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout), {"status": "error", "reason": "STALE_DIGEST"})
         self.assertNotIn(b"synthetic.py", result.stdout + result.stderr)
+
+    def test_external_files_require_review_and_reapproval_for_reads_searches_and_edits(self):
+        project = self.root / "consumer"
+        (project / ".copilot-privacy").mkdir(parents=True)
+        (project / guard.POLICY_PATH).write_text(json.dumps(guard.empty_policy()), encoding="utf-8")
+        args = (
+            ("view", {"path": str(self.file)}),
+            ("rg", {"pattern": "answer", "paths": str(self.file)}),
+            ("edit", {"path": str(self.file), "old_str": "42", "new_str": "43"}),
+            ("create", {"path": str(self.file), "file_text": "answer = 43\n"}),
+        )
+        for name, arguments in args:
+            self.denied(name, arguments, cwd=str(project))
+        guard.approve(project, str(self.file), "source", reviewed=True)
+        for name, arguments in args:
+            self.assertEqual(self.decision(name, arguments, cwd=str(project)), {})
+        self.file.write_text("answer = 43\n", encoding="utf-8")
+        for name, arguments in args:
+            self.assertEqual(
+                self.denied(name, arguments, cwd=str(project))["permissionDecisionReason"],
+                "STALE_DIGEST",
+            )
+        guard.approve(project, str(self.file), "source", reviewed=True)
+        self.assertEqual(self.decision("view", {"path": str(self.file)}, cwd=str(project)), {})
+        self.denied("create", {"path": str(self.root / "missing.py"), "file_text": ""}, cwd=str(project))
+
+    def test_external_controls_and_project_prefix_sibling_are_not_trusted(self):
+        sibling = self.root / "consumer-sibling"
+        sibling.mkdir()
+        external = sibling / "sample.py"
+        external.write_text("answer = 42\n", encoding="utf-8")
+        project = self.root / "consumer"
+        (project / ".copilot-privacy").mkdir(parents=True)
+        (project / guard.POLICY_PATH).write_text(json.dumps(guard.empty_policy()), encoding="utf-8")
+        self.denied("view", {"path": str(external)}, cwd=str(project))
+        control = sibling / "AGENTS.md"
+        control.write_text("Synthetic instructions\n", encoding="utf-8")
+        with self.assertRaisesRegex(guard.PolicyError, "CONTROL_PATH"):
+            guard.approve(project, str(control), "source", reviewed=True)
 
     def add_task(self, code="print('synthetic task')"):
         self.policy["tasks"]["test"] = {
@@ -333,7 +383,7 @@ class PrivacyGuardTests(unittest.TestCase):
             with self.assertRaises(guard.PolicyError):
                 guard.runner_command(task)
         self.file.write_text("answer = 43\n", encoding="utf-8")
-        self.denied("powershell", {"command": command})
+        self.assertEqual(self.decision("powershell", {"command": command}), {})
 
     def test_runner_command_single_quote_escaping(self):
         with mock.patch.object(guard, "__file__", str(self.root / "literal'path" / "privacy_guard.py")):
@@ -362,9 +412,14 @@ class PrivacyGuardTests(unittest.TestCase):
         result = self.cli("run", "--task", "test")
         self.assertEqual(json.loads(result.stdout)["status"], "failure")
         self.assertLess(len(result.stdout), 200)
-        self.classify()
+        project = self.root / "consumer"
+        (project / ".copilot-privacy").mkdir(parents=True)
+        external_policy = guard.empty_policy()
+        external_policy["tasks"] = self.policy["tasks"]
+        (project / guard.POLICY_PATH).write_text(json.dumps(external_policy), encoding="utf-8")
+        guard.approve(project, str(self.file), "source", reviewed=True)
         self.file.write_text("answer = 43\n", encoding="utf-8")
-        with mock.patch.object(guard.Path, "cwd", return_value=self.root):
+        with mock.patch.object(guard.Path, "cwd", return_value=project):
             with mock.patch.object(guard.subprocess, "Popen") as start:
                 with self.assertRaisesRegex(guard.PolicyError, "STALE_DIGEST"):
                     guard.run_task("test")

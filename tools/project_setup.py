@@ -39,9 +39,14 @@ override extensions applied to all profiles or workspace/enterprise settings.
 CLI: native Windows preToolUse baseline only; fresh-session runtime UNVERIFIED.
 Install the reusable plugin manually. Do not copy its engine into this project.
 Run the installed plugin's tools\\project_setup.py preflight --project PATH
-from a human terminal. Run tools\\privacy_guard.py approve only after human
-content review, using --project PATH --path REL --category source|synthetic
---reviewed. Never approve business values or secrets. Changed files need review.
+from a human terminal. Files inside the project root and its subdirectories
+are trusted without per-file entries or hashes, except protected control paths.
+Keep business data and secrets outside this trusted tree. Existing project
+policies adopt this behavior automatically; old internal digests are not checked.
+For external files only, run tools\\privacy_guard.py approve after human content
+review, using --project PATH --path ABSOLUTE_FILE --category source|synthetic
+--reviewed. External reads, searches and edits require matching SHA-256 digests;
+changed external files need reapproval. Never approve business values or secrets.
 The policy root is the exact absolute hook cwd; no parent-directory lookup.
 Hooks cannot control prompts, attachments, automatic context, or other clients.
 CLI hook timeouts fail open. Static checks do not prove installation,

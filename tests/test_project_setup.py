@@ -243,11 +243,11 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
             self.skipTest("engine supplied by parallel implementation")
         self.initialize()
         plugin = self.make_plugin()
-        source = self.project / "synthetic.py"
+        source = self.project.parent / "external-synthetic.py"
         source.write_text("value = 1\n", encoding="utf-8")
         approved = subprocess.run(
             [sys.executable, "-I", str(plugin / "tools" / "privacy_guard.py"), "approve",
-             "--project", str(self.project), "--path", "synthetic.py",
+             "--project", str(self.project), "--path", str(source),
              "--category", "synthetic", "--reviewed"],
             capture_output=True, timeout=15, check=False,
         )
