@@ -271,6 +271,57 @@ class PrivacyGuardTests(unittest.TestCase):
         self.assertNotIn(SYNTHETIC.encode(), rejected.stdout + rejected.stderr)
         self.assertEqual(rejected.stderr, b"")
 
+    def test_root_and_subdirectory_approval_expand_to_reviewed_files(self):
+        source = self.root / "src"
+        nested = source / "nested"
+        nested.mkdir(parents=True)
+        first = source / "first.py"
+        second = nested / "second.py"
+        first.write_text("first = 1\n", encoding="utf-8")
+        second.write_text("second = 2\n", encoding="utf-8")
+        settings = self.root / ".vscode"
+        settings.mkdir()
+        (settings / "settings.json").write_text("{}", encoding="utf-8")
+
+        result = guard.approve(self.root, ".", "source", reviewed=True)
+
+        self.assertEqual(result["files"], 3)
+        self.assertGreaterEqual(result["excluded_control_paths"], 2)
+        policy = guard.load_policy(self.root)
+        self.assertEqual(
+            {"sample.py", "src\\first.py", "src\\nested\\second.py"},
+            {entry["path"] for entry in policy["files"]},
+        )
+        self.assertEqual(
+            {}, self.decision("view", {"path": "src\\nested\\second.py"}),
+        )
+
+        first.unlink()
+        (source / "third.py").write_text("third = 3\n", encoding="utf-8")
+        guard.approve(self.root, "src", "synthetic", reviewed=True)
+        policy = guard.load_policy(self.root)
+        self.assertEqual(
+            {"sample.py", "src\\nested\\second.py", "src\\third.py"},
+            {entry["path"] for entry in policy["files"]},
+        )
+        self.assertEqual(
+            {"synthetic"},
+            {entry["category"] for entry in policy["files"] if entry["path"].startswith("src\\")},
+        )
+
+    def test_directory_approval_rejects_links_without_changing_policy(self):
+        source = self.root / "src"
+        source.mkdir()
+        link = source / "linked.py"
+        try:
+            link.symlink_to(self.file)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlink creation unavailable")
+        original = (self.root / guard.POLICY_PATH).read_bytes()
+        with self.assertRaisesRegex(guard.PolicyError, "LINK_PATH"):
+            guard.approve(self.root, "src", "source", reviewed=True)
+        self.assertEqual(original, (self.root / guard.POLICY_PATH).read_bytes())
+
     def test_isolated_installation_cli_approval_and_recheck(self):
         installation = self.root / "installation" / "tools"
         installation.mkdir(parents=True)
@@ -291,12 +342,23 @@ class PrivacyGuardTests(unittest.TestCase):
         self.assertEqual(approval.returncode, 0)
         self.assertEqual(approval.stderr, b"")
         self.assertEqual(json.loads(approval.stdout)["reason"], "HUMAN_ATTESTATION_NOT_SAFETY_PROOF")
+        source = consumer / "src"
+        source.mkdir()
+        (source / "module.py").write_text("value = 43\n", encoding="utf-8")
+        approval = subprocess.run(
+            [*command, "approve", "--project", str(consumer), "--path", ".",
+             "--category", "source", "--reviewed"],
+            cwd=consumer, capture_output=True, timeout=15,
+        )
+        self.assertEqual(approval.returncode, 0)
+        self.assertEqual(approval.stderr, b"")
+        self.assertEqual(json.loads(approval.stdout)["files"], 2)
         result = subprocess.run(
             [*command, "check", "--project", str(consumer)], cwd=consumer,
             capture_output=True, timeout=15,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(json.loads(result.stdout)["files"], 1)
+        self.assertEqual(json.loads(result.stdout)["files"], 2)
         (consumer / "synthetic.py").write_text("answer = 43\n", encoding="utf-8")
         result = subprocess.run(
             [*command, "check", "--project", str(consumer)], cwd=consumer,

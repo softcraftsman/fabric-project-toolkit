@@ -164,6 +164,33 @@ def classified_path(root, relative):
     return path
 
 
+def _control_path(parts):
+    return any(part.casefold() in CONTROL_PARTS for part in parts) or parts[-1].casefold() in CONTROL_NAMES
+
+
+def _directory_files(root, directory):
+    files = []
+    excluded = 0
+    pending = [directory]
+    while pending:
+        current = pending.pop()
+        for path in sorted(current.iterdir(), key=lambda item: item.name.casefold(), reverse=True):
+            relative = "\\".join(path.relative_to(root).parts)
+            parts = _parts(relative)
+            if _control_path(parts):
+                excluded += 1
+                continue
+            _no_links(path)
+            info = path.lstat()
+            if stat.S_ISDIR(info.st_mode):
+                pending.append(path)
+            elif stat.S_ISREG(info.st_mode):
+                files.append((relative, classified_path(root, relative)))
+            else:
+                fail("NOT_REGULAR_FILE")
+    return sorted(files, key=lambda item: canonical_path(item[0])), excluded
+
+
 def digest(path):
     result = hashlib.sha256()
     with path.open("rb") as stream:
@@ -374,10 +401,46 @@ def approve(project, relative, category, reviewed=False):
         fail("INVALID_CATEGORY")
     root = project_root(project)
     policy = load_policy(root)
-    target = classified_path(root, relative)
-    entry = {"path": relative, "category": category, "sha256": digest(target)}
-    key = canonical_path(relative)
-    policy["files"] = [item for item in policy["files"] if canonical_path(item["path"]) != key] + [entry]
+    directory_approval = False
+    if relative == ".":
+        directory = root
+        scope = None
+        directory_approval = True
+    else:
+        parts = _parts(relative)
+        if _control_path(parts):
+            fail("CONTROL_PATH")
+        target = root.joinpath(*parts)
+        _no_links(target)
+        if target.is_dir():
+            directory = target
+            scope = canonical_path(relative)
+            directory_approval = True
+        else:
+            target = classified_path(root, relative)
+            entry = {"path": relative, "category": category, "sha256": digest(target)}
+            key = canonical_path(relative)
+            policy["files"] = [
+                item for item in policy["files"] if canonical_path(item["path"]) != key
+            ] + [entry]
+            directory = None
+    if directory is not None:
+        files, excluded = _directory_files(root, directory)
+        if not files:
+            fail("NO_APPROVABLE_FILES")
+        entries = [
+            {"path": path, "category": category, "sha256": digest(target)}
+            for path, target in files
+        ]
+        if scope is None:
+            inside_scope = lambda _key: True
+        else:
+            prefix = scope + "\\"
+            inside_scope = lambda key: key == scope or key.startswith(prefix)
+        policy["files"] = [
+            item for item in policy["files"]
+            if not inside_scope(canonical_path(item["path"]))
+        ] + entries
     validate_policy(policy)
     raw = (json.dumps(policy, ensure_ascii=True, indent=2) + "\n").encode("utf-8")
     if len(raw) > MAX_INPUT_BYTES:
@@ -393,7 +456,10 @@ def approve(project, relative, category, reviewed=False):
         os.replace(scratch, destination)
     finally:
         scratch.unlink(missing_ok=True)
-    return {"status": "approved", "reason": "HUMAN_ATTESTATION_NOT_SAFETY_PROOF"}
+    result = {"status": "approved", "reason": "HUMAN_ATTESTATION_NOT_SAFETY_PROOF"}
+    if directory_approval:
+        result.update({"files": len(entries), "excluded_control_paths": excluded})
+    return result
 
 
 def check(project):

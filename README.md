@@ -118,20 +118,28 @@ reviewed revision. Access to a private repository requires GitHub authentication
 for both Copilot's installer and Git.
 
 Setup starts with an empty file/task policy. No files are automatically
-approved. Review each file locally to confirm it contains only source code
-without embedded business values or secrets, or genuinely synthetic test data:
+approved. Review every eligible file in the project locally before approving a
+directory; approval is not a content scan, and source files can contain
+business values or secrets. Directory approval records each file and its digest
+separately. Reserved control paths (including `.copilot-privacy`, `.git`,
+`.vscode`, agent and hook directories, and plugin control files) are excluded:
 
 ```powershell
-python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path src\example.py --category source --reviewed
-python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path tests\test_example.py --category synthetic --reviewed
+# Approve all eligible files below the project root after reviewing them.
+python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path . --category source --reviewed
+# Or approve a particular directory, including its nested directories.
+python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path src --category source --reviewed
 python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"
 ```
 
 `--reviewed` is a human attestation, not a content scanner or proof of safety.
-Digests detect changes after review, not whether the original review was
-correct. Re-review and reapprove changed files before subsequent access.
-Policy, hook, and plugin implementation files are not ordinary editable targets.
-The assistant must not approve its own changes or broaden the policy.
+The directory command reports how many files it added and how many reserved
+control paths it excluded. Reapproving a directory replaces its inventory for
+that directory, so deleted files are removed from the policy. Digests detect
+changes after review, not whether the original review was correct. Re-review
+and reapprove changed files before subsequent access. Policy, hook, and plugin
+implementation files are not ordinary editable targets. The assistant must not
+approve its own changes or broaden the policy.
 
 Start a fresh CLI session from the exact target project root. Confirm the
 plugin is enabled and its hooks are loaded using the client's plugin and
