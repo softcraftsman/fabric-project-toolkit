@@ -195,9 +195,9 @@
   <table>
     <thead><tr><th>Risk in a Fabric project</th><th>Control</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td>Agent reads a data extract, export, log or notebook output file</td><td>Reads limited to project-local files a person classified as source or synthetic; file contents can change after approval</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent reads an unclassified data extract, export, log or notebook output file</td><td>Unclassified files are denied; only project-local files explicitly classified by a person are readable</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent searches the whole workspace and pulls in matching rows</td><td>Search allowed only against explicitly named, classified files; no directory or glob scope</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>A reviewed file is later changed to include data</td><td>Digest mismatch withholds the file until a person re-reviews it</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>A reviewed file is later changed to include data</td><td>Project-local content changes do not trigger reapproval or digest validation</td><td><span class="tag open">Open</span> Keep business data outside the project and re-review changed files</td></tr>
       <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>MCP and connector tools have no baseline approval</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent runs an arbitrary command, script or query and reads the output</td><td>Shell limited to one reviewed-task wrapper; no raw child output returned</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent pulls prior session history or diagnostics that contain data</td><td>History retrieval and unfiltered diagnostics denied</td><td><span class="tag blocked">Blocked</span></td></tr>

@@ -258,8 +258,10 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
             self.assertEqual(["STATIC_CONFIGURATION_OK"], result["codes"])
         source.write_text("value = 2\n", encoding="utf-8")
         status, result = self.invoke(setup.preflight, self.project, plugin)
-        self.assertEqual(1, status)
-        self.assertIn("POLICY_INVALID_OR_DRIFT", result["codes"])
+        self.assertEqual(0 if os.name == "nt" else 1, status)
+        self.assertNotIn("POLICY_INVALID_OR_DRIFT", result["codes"])
+        if os.name == "nt":
+            self.assertEqual(["STATIC_CONFIGURATION_OK"], result["codes"])
 
 
 @unittest.skipUnless(os.name == "nt" and shutil.which("powershell.exe"), "native Windows protocol only")
