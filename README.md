@@ -69,14 +69,15 @@ synthetic protocol and fresh-session behavior after client upgrades.
    following [Set up a project](#set-up-a-project) below:
    `python -I "$ToolkitRoot\tools\project_setup.py" init --project "$ProjectRoot"`.
    This creates `<project>\.copilot-privacy\` containing `policy.json`,
-   `advisory.code-profile`, and `guidance.txt`. It refuses to run if that folder
+   `advisory-settings.json`, and `guidance.txt`. It refuses to run if that folder
    already exists and changes nothing else. Commit `.copilot-privacy\policy.json`
    only after review; it lists file names and digests, never contents.
 3. **Keep the project tree curated.** Internal files need no registration.
    Approve only external files the agent needs (see below).
 4. **Run preflight:** `python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"`.
-5. **Optional, VS Code:** manually import `.copilot-privacy\advisory.code-profile`
-   (Profiles: Import Profile) and select it for the project window.
+5. **Optional, VS Code:** create a new empty profile (Profiles: Create Profile),
+   paste `.copilot-privacy\advisory-settings.json` into its settings JSON, and
+   select it for the project window.
 6. **Start a fresh CLI session from the project root**, confirm the plugin and
    hook are loaded, and test with synthetic files only.
 
@@ -244,8 +245,8 @@ code-only environment with synthetic fixtures and no live-data credentials.
 
 The generated profile under `.copilot-privacy` is a conservative fallback:
 agent mode, MCP, skills, plugins, and terminal auto-approval are disabled.
-Import it manually using VS Code's profile UI and select it for the target
-window. Existing workspace settings and personal profiles are not overwritten.
+Paste its plain-JSON settings into a new VS Code profile and select it for the
+target window. Existing workspace settings and personal profiles are not overwritten.
 
 **VS Code is not tool-enforced by this baseline.** The CLI hook is not a
 VS Code interceptor. Inline completions, chat attachments, editor selections,

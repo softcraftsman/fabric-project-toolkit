@@ -11,7 +11,7 @@ import sys
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 POLICY_DIRECTORY = ".copilot-privacy"
-PROFILE_NAME = "advisory.code-profile"
+PROFILE_NAME = "advisory-settings.json"
 VSCODE_SETTINGS = {
     "chat.agent.enabled": False,
     "chat.mcp.access": "none",
@@ -27,9 +27,11 @@ HOOK_ARGUMENTS = [
     """try { $ErrorActionPreference = 'Stop'; & (Join-Path $env:COPILOT_PLUGIN_ROOT 'hooks\\Invoke-PrivacyGuard.ps1') } catch { [Console]::Out.WriteLine('{"permissionDecision":"deny","permissionDecisionReason":"CLI_GUARD_FAILURE"}'); exit 0 }""",
 ]
 GUIDANCE = """VS Code: ADVISORY / NOT TOOL-ENFORCED
-Manually import advisory.code-profile through Profiles: Import Profile, create
-the profile, then select Use this Profile for Current Window. Verify the active
-profile and effective settings after import and after every client upgrade.
+Create a new empty profile (Profiles: Create Profile), open its settings with
+Preferences: Open Profile Settings (JSON), paste the contents of
+advisory-settings.json, then select Use this Profile for Current Window. Keep the
+new profile free of extensions and MCP servers. Verify the active profile and
+effective settings after setup and after every client upgrade.
 Use only a curated code-only workspace containing human-reviewed source and
 synthetic data. Source can contain secrets or business values; review it first.
 The profile does not enforce classification, disable inline/context ingestion,
@@ -61,15 +63,9 @@ def serialized(value):
 
 
 def generated_files():
-    profile = {
-        "name": "Privacy baseline - ADVISORY ONLY",
-        "settings": json.dumps({"settings": serialized(VSCODE_SETTINGS)}),
-        "extensions": "[]",
-        "mcp": json.dumps({"mcp": json.dumps({"servers": {}})}),
-    }
     return {
         "policy.json": serialized({"version": 1, "files": [], "tasks": {}}),
-        PROFILE_NAME: serialized(profile),
+        PROFILE_NAME: serialized(VSCODE_SETTINGS),
         "guidance.txt": GUIDANCE,
     }
 

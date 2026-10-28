@@ -104,9 +104,7 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
             {"version": 1, "files": [], "tasks": {}},
             json.loads((target / "policy.json").read_text(encoding="utf-8")),
         )
-        profile = json.loads((target / setup.PROFILE_NAME).read_text(encoding="utf-8"))
-        settings_envelope = json.loads(profile["settings"])
-        settings = json.loads(settings_envelope["settings"])
+        settings = json.loads((target / setup.PROFILE_NAME).read_text(encoding="utf-8"))
         self.assertIs(False, settings["chat.agent.enabled"])
         self.assertEqual("none", settings["chat.mcp.access"])
         for key in (
@@ -115,8 +113,6 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
         ):
             self.assertIs(False, settings[key])
         self.assertEqual({}, settings["chat.tools.terminal.autoApprove"])
-        self.assertEqual([], json.loads(profile["extensions"]))
-        self.assertEqual({"servers": {}}, json.loads(json.loads(profile["mcp"])["mcp"]))
         guidance = (target / "guidance.txt").read_text(encoding="utf-8")
         self.assertIn("NOT TOOL-ENFORCED", guidance)
         self.assertIn("curated code-only workspace", guidance)
