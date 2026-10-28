@@ -39,7 +39,7 @@ and MCP servers are separate dependencies, not bundled approval grants.
 - Denies unreviewed tools and arbitrary shell commands on the native CLI
   pre-tool hook path.
 - Allows supported reads and narrowly scoped searches only for individually
-  reviewed source or synthetic files whose SHA-256 digests still match.
+  reviewed source or synthetic files inside the project directory.
 - Provides a human-only classification command. A file extension or directory
   name is not evidence that content is safe.
 - Runs explicitly reviewed development tasks through a wrapper that returns
@@ -71,7 +71,7 @@ synthetic protocol and fresh-session behavior after client upgrades.
    This creates `<project>\.copilot-privacy\` containing `policy.json`,
    `advisory.code-profile`, and `guidance.txt`. It refuses to run if that folder
    already exists and changes nothing else. Commit `.copilot-privacy\policy.json`
-   only after review; it lists file names and digests, never contents.
+   only after review; it lists file names and categories, never contents.
 3. **Classify files** the agent may read (see below). Unclassified files stay
    blocked.
 4. **Run preflight:** `python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"`.
@@ -120,8 +120,9 @@ for both Copilot's installer and Git.
 Setup starts with an empty file/task policy. No files are automatically
 approved. Review every eligible file in the project locally before approving a
 directory; approval is not a content scan, and source files can contain
-business values or secrets. Directory approval records each file and its digest
-separately. Reserved control paths (including `.copilot-privacy`, `.git`,
+business values or secrets. Files inside the project remain approved if their
+contents change; SHA-256 digests are not used for project-local files. Paths
+outside the project are not approvable. Reserved control paths (including `.copilot-privacy`, `.git`,
 `.vscode`, agent and hook directories, and plugin control files) are excluded:
 
 ```powershell

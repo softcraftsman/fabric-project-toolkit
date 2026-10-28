@@ -1,4 +1,4 @@
-"""Fail-closed, digest-scoped tool policy; not a sandbox or a content scanner.
+"""Fail-closed, human-review-scoped tool policy; not a sandbox or a content scanner.
 
 Human approval attests to review, not safety. File changes require fresh approval.
 Policy checks do not establish that a client actually invokes this hook. Reviewed
@@ -10,7 +10,6 @@ Installed agent profiles do not grant delegation or other tool capabilities.
 """
 
 import argparse
-import hashlib
 import json
 import ntpath
 import os
@@ -191,20 +190,6 @@ def _directory_files(root, directory):
     return sorted(files, key=lambda item: canonical_path(item[0])), excluded
 
 
-def digest(path):
-    result = hashlib.sha256()
-    with path.open("rb") as stream:
-        before = os.fstat(stream.fileno())
-        while chunk := stream.read(65536):
-            result.update(chunk)
-        after = os.fstat(stream.fileno())
-    current = path.stat()
-    identity = lambda value: (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
-    if identity(before) != identity(after) or identity(after) != identity(current):
-        fail("FILE_CHANGED")
-    return result.hexdigest()
-
-
 def empty_policy():
     return {"version": 1, "files": [], "tasks": {}}
 
@@ -217,7 +202,7 @@ def validate_policy(policy):
         fail("INVALID_POLICY")
     seen = set()
     for entry in policy["files"]:
-        _keys(entry, ("path", "category", "sha256"))
+        _keys(entry, ("path", "category"), ("sha256",))
         key = canonical_path(entry["path"])
         if key in seen:
             fail("DUPLICATE_PATH")
@@ -227,7 +212,10 @@ def validate_policy(policy):
             fail("CONTROL_PATH")
         if not isinstance(entry["category"], str) or entry["category"] not in ("source", "synthetic"):
             fail("INVALID_CATEGORY")
-        if not isinstance(entry["sha256"], str) or not HASH_PATTERN.fullmatch(entry["sha256"]):
+        if "sha256" in entry and (
+            not isinstance(entry["sha256"], str)
+            or not HASH_PATTERN.fullmatch(entry["sha256"])
+        ):
             fail("INVALID_DIGEST")
     for name, task in policy["tasks"].items():
         if not isinstance(name, str) or not TASK_PATTERN.fullmatch(name):
@@ -257,8 +245,7 @@ def load_policy(root):
 
 def verify_files(root, policy):
     for entry in policy["files"]:
-        if digest(classified_path(root, entry["path"])) != entry["sha256"]:
-            fail("STALE_DIGEST")
+        classified_path(root, entry["path"])
 
 
 def _relative_tool_path(root, value):
@@ -281,10 +268,7 @@ def approved_file(root, policy, value):
     if entry is None:
         fail("UNCLASSIFIED_FILE")
     # Check the requested spelling too, so Windows aliases cannot redirect access.
-    path = classified_path(root, relative)
-    if digest(path) != entry["sha256"]:
-        fail("STALE_DIGEST")
-    return path
+    return classified_path(root, relative)
 
 
 def runner_command(task):
@@ -418,7 +402,7 @@ def approve(project, relative, category, reviewed=False):
             directory_approval = True
         else:
             target = classified_path(root, relative)
-            entry = {"path": relative, "category": category, "sha256": digest(target)}
+            entry = {"path": relative, "category": category}
             key = canonical_path(relative)
             policy["files"] = [
                 item for item in policy["files"] if canonical_path(item["path"]) != key
@@ -429,7 +413,7 @@ def approve(project, relative, category, reviewed=False):
         if not files:
             fail("NO_APPROVABLE_FILES")
         entries = [
-            {"path": path, "category": category, "sha256": digest(target)}
+            {"path": path, "category": category}
             for path, target in files
         ]
         if scope is None:

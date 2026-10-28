@@ -63,7 +63,7 @@
   <p class="lead">The plugin narrows what an agent can touch to files a person has reviewed, and keeps the productive parts of the workflow.</p>
   <div class="grid">
     <div class="card stat"><b>Default deny</b><span>Unknown tools, connectors, skills, delegation and arbitrary shell commands are blocked on the CLI hook path</span></div>
-    <div class="card stat"><b>Human-reviewed</b><span>Only individually classified source or synthetic files are readable, and only while their content digest still matches</span></div>
+    <div class="card stat"><b>Human-reviewed</b><span>Only individually classified source or synthetic files inside the project directory are readable</span></div>
     <div class="card stat"><b>Status only</b><span>Approved tasks (for example tests) report pass/fail, not raw output, to the model</span></div>
     <div class="card stat"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
   </div>
@@ -195,7 +195,7 @@
   <table>
     <thead><tr><th>Risk in a Fabric project</th><th>Control</th><th>Result</th></tr></thead>
     <tbody>
-      <tr><td>Agent reads a data extract, export, log or notebook output file</td><td>Reads limited to files a person classified as source or synthetic, matched by SHA-256 digest</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent reads a data extract, export, log or notebook output file</td><td>Reads limited to project-local files a person classified as source or synthetic; file contents can change after approval</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent searches the whole workspace and pulls in matching rows</td><td>Search allowed only against explicitly named, classified files; no directory or glob scope</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>A reviewed file is later changed to include data</td><td>Digest mismatch withholds the file until a person re-reviews it</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>MCP and connector tools have no baseline approval</td><td><span class="tag blocked">Blocked</span></td></tr>

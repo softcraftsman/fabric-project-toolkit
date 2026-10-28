@@ -75,14 +75,15 @@ distinguish verified controls, advisory guidance, and known gaps.
 ## Baseline implementation
 
 The baseline focuses on the native Windows CLI tool-call path. Its file
-inventory requires explicit human review and matching content digests.
+inventory requires explicit human review; project-local content changes do not
+require digest revalidation.
 Unclassified content and integrations have no automatic exception.
 
 | Area | Baseline scope |
 | --- | --- |
 | CLI tool access | Default-deny decisions with explicit reviewed-file and constrained task-wrapper paths |
 | Fabric agents | Retain targeted solution-building roles alongside the guardrails; review capabilities without granting blanket access |
-| Content classification | Human-reviewed source and synthetic files only; digest checks detect subsequent changes |
+| Content classification | Human-reviewed source and synthetic files only; project-local files remain approved after content changes |
 | Local development | Reviewed tasks return status without streaming child output; execution is not sandboxed |
 | VS Code | Conservative manually selected profile; no claim of equivalent tool interception |
 | Readiness | Static configuration and drift checks, not certification of runtime enforcement |

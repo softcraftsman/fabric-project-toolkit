@@ -1,7 +1,6 @@
 """Synthetic-only tests for the conservative privacy policy core."""
 
 import copy
-import hashlib
 import importlib.util
 import json
 import os
@@ -57,7 +56,6 @@ class PrivacyGuardTests(unittest.TestCase):
         path = self.root.joinpath(*relative.split("\\"))
         self.policy["files"].append({
             "path": relative, "category": "source",
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         })
         self.save()
 
@@ -121,7 +119,7 @@ class PrivacyGuardTests(unittest.TestCase):
         payload["unknown"] = SYNTHETIC
         self.assertEqual(guard.hook(json.dumps(payload))["permissionDecision"], "deny")
 
-    def test_exact_hashed_reads_and_scoped_search(self):
+    def test_approved_reads_and_scoped_search(self):
         self.classify()
         for name in ("view", "functions.view"):
             self.assertEqual(self.decision(name, {"path": str(self.file)}), {})
@@ -156,7 +154,7 @@ class PrivacyGuardTests(unittest.TestCase):
         self.denied("view", {"path": "sample.py", "view_range": [True, -1]})
         self.denied("view", {"path": "sample.py", "forceReadLargeFiles": "true"})
 
-    def test_reviewed_edits_only_then_digest_drift_blocks(self):
+    def test_project_local_edits_do_not_require_fresh_approval(self):
         self.classify()
         self.assertEqual(self.decision("edit", {"path": "sample.py", "old_str": "42", "new_str": "43"}), {})
         self.assertEqual(self.decision("create", {"path": "sample.py", "file_text": "answer = 43\n"}), {})
@@ -168,9 +166,8 @@ class PrivacyGuardTests(unittest.TestCase):
             ("rg", {"pattern": "answer", "paths": "sample.py"}),
             ("edit", {"path": "sample.py", "old_str": "43", "new_str": "44"}),
         ):
-            self.denied(name, args)
-        with self.assertRaisesRegex(guard.PolicyError, "STALE_DIGEST"):
-            guard.check(self.root)
+            self.assertEqual(self.decision(name, args), {})
+        self.assertEqual(guard.check(self.root)["status"], "ok")
 
     def test_schema_validation_unknown_fields_types_and_duplicate_paths(self):
         entry = {"path": "sample.py", "category": "source", "sha256": "a" * 64}
@@ -364,8 +361,8 @@ class PrivacyGuardTests(unittest.TestCase):
             [*command, "check", "--project", str(consumer)], cwd=consumer,
             capture_output=True, timeout=15,
         )
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(json.loads(result.stdout), {"status": "error", "reason": "STALE_DIGEST"})
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(json.loads(result.stdout)["status"], "ok")
         self.assertNotIn(b"synthetic.py", result.stdout + result.stderr)
 
     def add_task(self, code="print('synthetic task')"):
@@ -395,7 +392,7 @@ class PrivacyGuardTests(unittest.TestCase):
             with self.assertRaises(guard.PolicyError):
                 guard.runner_command(task)
         self.file.write_text("answer = 43\n", encoding="utf-8")
-        self.denied("powershell", {"command": command})
+        self.assertEqual(self.decision("powershell", {"command": command}), {})
 
     def test_runner_command_single_quote_escaping(self):
         with mock.patch.object(guard, "__file__", str(self.root / "literal'path" / "privacy_guard.py")):
@@ -419,7 +416,7 @@ class PrivacyGuardTests(unittest.TestCase):
         self.assertEqual(json.loads(result.stdout), {"task": "test", "status": "failure", "exit_code": None})
         self.assertNotIn(SYNTHETIC.encode(), result.stdout + result.stderr)
 
-    def test_runner_bounds_output_and_denies_drift_before_launch(self):
+    def test_runner_bounds_output_and_allows_project_local_drift(self):
         self.add_task("import sys; sys.stdout.write('x' * 2000000); sys.stdout.flush()")
         result = self.cli("run", "--task", "test")
         self.assertEqual(json.loads(result.stdout)["status"], "failure")
@@ -428,9 +425,9 @@ class PrivacyGuardTests(unittest.TestCase):
         self.file.write_text("answer = 43\n", encoding="utf-8")
         with mock.patch.object(guard.Path, "cwd", return_value=self.root):
             with mock.patch.object(guard.subprocess, "Popen") as start:
-                with self.assertRaisesRegex(guard.PolicyError, "STALE_DIGEST"):
-                    guard.run_task("test")
-                start.assert_not_called()
+                result = guard.run_task("test")
+                start.assert_called_once()
+                self.assertEqual(result["status"], "failure")
 
     def test_runner_timeout_returns_metadata_without_child_output(self):
         self.add_task(f"import time; print('{SYNTHETIC}', flush=True); time.sleep(2)")
