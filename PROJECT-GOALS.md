@@ -20,6 +20,14 @@ Business-row values and secrets are prohibited. Other information requires
 explicit classification and approval before disclosure. Source code is not
 automatically safe if it contains embedded business values or secrets.
 
+Project-root trust is the file-access boundary: ordinary files inside the root
+and its subdirectories require neither inventory entries nor SHA-256 checks.
+Only external files require individual human approval and matching digests,
+including before edits; changes require reapproval. This applies automatically
+to existing and new projects. Protected control paths and filesystem-alias
+restrictions remain. The operator must keep business data outside the trusted
+tree; root trust is not content classification or proof of BAA coverage.
+
 These are target goals, not a statement that the current plugin implements
 all these protections. The initial restricted-development attempt informs
 the design but does not define the reusable plugin's authoritative policy.
@@ -36,7 +44,7 @@ not automatically approved for the reusable plugin.
 | 1 | Define a clear data boundary | Source code and synthetic test data are eligible for context; business rows and secrets are prohibited. Other information requires explicit classification and approval before disclosure. Files containing code are not automatically safe. | Agreed scope |
 | 2 | Make adoption reusable and non-destructive | A project can install the plugin and supply a small policy configuration without copying customer-specific scripts. Existing instructions, settings, and personal configurations are preserved; conflicts are reported. | New |
 | 3 | Deny unreviewed capabilities by default | Unknown tools, connectors, skills, agents, and newly introduced capabilities remain blocked on supported enforcement paths. Approvals use narrow identities and validated arguments, not blanket server grants. | Existing |
-| 4 | Control content access, not just tool names | Approved reads, searches, diagnostics, notebook definitions, and command outputs are not treated as inherently safe. Unclassified content is withheld on protected paths; unsupported paths are explicitly identified. | New |
+| 4 | Scope file trust to the project root | Ordinary project files need no individual registration or hashes. External files require explicit human approval and SHA-256 verification before reads, searches, or edits. Protected controls and link escapes remain blocked. Unsupported paths are explicitly identified; internal business data is a documented residual risk. | Agreed scope |
 | 5 | Preserve practical coding workflows | Developers can edit approved code, lint, format, build, and run synthetic tests through constrained operations. Arbitrary execution is not required for ordinary supported tasks. Executed project code remains a documented risk. | Existing |
 | 6 | Support CLI and VS Code explicitly | Each client has its own verified configuration and acceptance tests. A CLI hook never counts as proof of VS Code protection. Features without verified controls are disabled or marked outside the protected workflow. | Agreed scope; extends pilot |
 | 7 | Separate local processing from model-visible results | Sensitive processing may run locally or within an approved service boundary, but only classified, approved results return to Copilot. Raw errors, logs, previews, and saved outputs do not become an accidental return channel. | Existing principle; new mechanism |
@@ -75,14 +83,15 @@ distinguish verified controls, advisory guidance, and known gaps.
 ## Baseline implementation
 
 The baseline focuses on the native Windows CLI tool-call path. Its file
-inventory requires explicit human review and matching content digests.
-Unclassified content and integrations have no automatic exception.
+tree is trusted without per-file inventory or hashing. Only external files
+require explicit human review and matching content digests. Integrations have
+no automatic exception. Project-local business data is not screened.
 
 | Area | Baseline scope |
 | --- | --- |
-| CLI tool access | Default-deny decisions with explicit reviewed-file and constrained task-wrapper paths |
+| CLI tool access | Project-root file trust, digest-approved external files, and constrained task-wrapper paths; other capabilities default-deny |
 | Fabric agents | Retain targeted solution-building roles alongside the guardrails; review capabilities without granting blanket access |
-| Content classification | Human-reviewed source and synthetic files only; digest checks detect subsequent changes |
+| Content classification | No per-file registration or hashes inside the project; external source/synthetic approvals require digests; protected control paths remain blocked |
 | Local development | Reviewed tasks return status without streaming child output; execution is not sandboxed |
 | VS Code | Conservative manually selected profile; no claim of equivalent tool interception |
 | Readiness | Static configuration and drift checks, not certification of runtime enforcement |

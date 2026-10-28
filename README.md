@@ -38,10 +38,10 @@ and MCP servers are separate dependencies, not bundled approval grants.
 
 - Denies unreviewed tools and arbitrary shell commands on the native CLI
   pre-tool hook path.
-- Allows supported reads and narrowly scoped searches only for individually
-  reviewed source or synthetic files whose SHA-256 digests still match.
-- Provides a human-only classification command. A file extension or directory
-  name is not evidence that content is safe.
+- Trusts ordinary files in the project root and its subdirectories without
+  per-file entries or SHA-256 checks. Protected control paths remain blocked.
+- Requires individual human approval and matching SHA-256 digests only for
+  files outside the project root, including before external edits.
 - Runs explicitly reviewed development tasks through a wrapper that returns
   status rather than raw child-process output.
 - Creates project-local policy and a conservative VS Code profile without
@@ -72,8 +72,8 @@ synthetic protocol and fresh-session behavior after client upgrades.
    `advisory-settings.json`, and `guidance.txt`. It refuses to run if that folder
    already exists and changes nothing else. Commit `.copilot-privacy\policy.json`
    only after review; it lists file names and digests, never contents.
-3. **Classify files** the agent may read (see below). Unclassified files stay
-   blocked.
+3. **Keep the project tree curated.** Internal files need no registration.
+   Approve only external files the agent needs (see below).
 4. **Run preflight:** `python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"`.
 5. **Optional, VS Code:** create a new empty profile (Profiles: Create Profile),
    paste `.copilot-privacy\advisory-settings.json` into its settings JSON, and
@@ -118,19 +118,34 @@ of cloning again. Keep the setup checkout and installed plugin on the same
 reviewed revision. Access to a private repository requires GitHub authentication
 for both Copilot's installer and Git.
 
-Setup starts with an empty file/task policy. No files are automatically
-approved. Review each file locally to confirm it contains only source code
-without embedded business values or secrets, or genuinely synthetic test data:
+Setup starts with an empty external-file/task policy. **The project root and
+its subdirectories are trusted automatically**, except policy, hook, plugin,
+and other protected control paths. Internal files require neither approval
+entries nor hashes, even after edits. Keep business data and secrets outside
+that tree: an export saved inside it can enter model context.
+
+**Existing projects adopt root trust automatically after updating the plugin.**
+Legacy internal file entries may be removed; their digests no longer gate access.
+The project policy is still required. Missing policy does not enable access.
+
+For an external file, review it locally to confirm it contains only source code
+without embedded business values or secrets, or genuinely synthetic test data.
+Use its absolute path; external directory grants are not supported:
 
 ```powershell
-python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path src\example.py --category source --reviewed
-python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path tests\test_example.py --category synthetic --reviewed
+$ExternalFile = Join-Path $HOME 'shared-source\example.py'
+python -I "$ToolkitRoot\tools\privacy_guard.py" approve --project "$ProjectRoot" --path "$ExternalFile" --category source --reviewed
 python -I "$ToolkitRoot\tools\project_setup.py" preflight --project "$ProjectRoot"
 ```
 
 `--reviewed` is a human attestation, not a content scanner or proof of safety.
-Digests detect changes after review, not whether the original review was
-correct. Re-review and reapprove changed files before subsequent access.
+External-file digests detect changes after review, not whether the original
+review was correct. External reads, searches, and edits require a matching
+digest; reapprove after changes, including agent edits. Internal approval calls
+return `PROJECT_ROOT_TRUSTED` without adding entries or hashing the file.
+Searches still require explicit file paths; directory/glob searches are not
+enabled by root trust. Symlinks, junctions, hard-linked files, and path traversal
+remain blocked rather than inheriting trust from a project-local alias.
 Policy, hook, and plugin implementation files are not ordinary editable targets.
 The assistant must not approve its own changes or broaden the policy.
 
@@ -201,8 +216,8 @@ A human may add fixed tasks to `.copilot-privacy\policy.json`. For example:
 }
 ```
 
-Keep the file inventory populated by the classification command; the empty
-inventory above only illustrates the policy structure. Review the task's
+The `files` list is only needed for external file approvals; leave it empty
+when all required files are inside the project. Review the task's
 executable, imports, configuration, fixtures, and side effects before approval.
 Use an absolute executable path when interpreter identity matters.
 
@@ -247,9 +262,11 @@ the profile is not proof that business data cannot enter context.
 - Pasted prompts, attachments, automatic instructions, resumed sessions,
   automatic MCP resources, and other non-tool context paths are not intercepted.
   Keep sensitive information out of those paths before starting Copilot.
-- File review and subsequent access are separate operations. Hash checks reduce
-  accidental drift but do not prevent concurrent changes between checking and
-  reading. Do not use this as a defense against hostile local processes.
+- Project-root trust does not inspect content or detect internal-file drift.
+  Business data placed inside the project is not blocked by classification.
+  External hash checks reduce accidental drift but do not prevent concurrent
+  changes between checking and reading. This is not a defense against hostile
+  local processes.
 - Other installed plugins or integrations may load context before any tool
   invocation. Use a clean, reviewed client configuration.
 - Policy and profile files, Git-ignore rules, and file exclusions are not

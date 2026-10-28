@@ -1,6 +1,6 @@
-"""Fail-closed, digest-scoped tool policy; not a sandbox or a content scanner.
+"""Project-root trust with digest-scoped external access; not a content scanner.
 
-Human approval attests to review, not safety. File changes require fresh approval.
+Project files need no inventory. External file changes require fresh approval.
 Policy checks do not establish that a client actually invokes this hook. Reviewed
 tasks execute mutable local code with the caller's privileges; output suppression
 does not prevent network access, credential access, or other child side effects.
@@ -138,6 +138,12 @@ def _parts(value):
 
 
 def canonical_path(value):
+    _text(value)
+    path = Path(value)
+    if path.is_absolute():
+        if path.drive.startswith("\\\\"):
+            fail("INVALID_PATH")
+        return (path.anchor + "\\".join(_parts(str(path.relative_to(path.anchor)).replace(os.sep, "\\")))).casefold()
     return "\\".join(_parts(value)).casefold()
 
 
@@ -148,18 +154,34 @@ def _inside(path, parent):
         return False
 
 
-def classified_path(root, relative):
-    parts = _parts(relative)
+def classified_path(root, relative, *, allow_missing=False):
+    relative = _relative_tool_path(root, relative)
+    absolute = Path(relative)
+    external = absolute.is_absolute()
+    parts = _parts(
+        str(absolute.relative_to(absolute.anchor)).replace(os.sep, "\\")
+        if external else relative
+    )
     if any(part.casefold() in CONTROL_PARTS for part in parts) or parts[-1].casefold() in CONTROL_NAMES:
         fail("CONTROL_PATH")
-    path = root.joinpath(*parts)
+    if external and absolute.drive.startswith("\\\\"):
+        fail("INVALID_PATH")
+    path = absolute if external else root.joinpath(*parts)
     if _inside(path, PLUGIN_ROOT):
         fail("CONTROL_PATH")
+    if allow_missing and not external and not path.exists():
+        try:
+            _no_links(path)
+        except FileNotFoundError:
+            _no_links(path.parent)
+            if not path.parent.is_dir():
+                fail("INVALID_PATH")
+            return path
     _no_links(path)
     info = path.stat()
     if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
         fail("NOT_REGULAR_FILE")
-    if not _inside(path.resolve(strict=True), root.resolve(strict=True)):
+    if not external and not _inside(path.resolve(strict=True), root.resolve(strict=True)):
         fail("OUTSIDE_PROJECT")
     return path
 
@@ -195,7 +217,11 @@ def validate_policy(policy):
         if key in seen:
             fail("DUPLICATE_PATH")
         seen.add(key)
-        parts = _parts(entry["path"])
+        entry_path = Path(entry["path"])
+        parts = _parts(
+            str(entry_path.relative_to(entry_path.anchor)).replace(os.sep, "\\")
+            if entry_path.is_absolute() else entry["path"]
+        )
         if any(part.casefold() in CONTROL_PARTS for part in parts) or parts[-1].casefold() in CONTROL_NAMES:
             fail("CONTROL_PATH")
         if not isinstance(entry["category"], str) or entry["category"] not in ("source", "synthetic"):
@@ -223,13 +249,17 @@ def load_policy(root):
     with location.open("rb") as stream:
         policy = validate_policy(parse_json(stream.read(MAX_INPUT_BYTES + 1)))
     for entry in policy["files"]:
-        if _inside(root.joinpath(*_parts(entry["path"])), PLUGIN_ROOT):
+        relative = _relative_tool_path(root, entry["path"])
+        target = Path(relative) if Path(relative).is_absolute() else root.joinpath(*_parts(relative))
+        if _inside(target, PLUGIN_ROOT):
             fail("CONTROL_PATH")
     return policy
 
 
 def verify_files(root, policy):
     for entry in policy["files"]:
+        if not Path(_relative_tool_path(root, entry["path"])).is_absolute():
+            continue
         if digest(classified_path(root, entry["path"])) != entry["sha256"]:
             fail("STALE_DIGEST")
 
@@ -238,8 +268,11 @@ def _relative_tool_path(root, value):
     _text(value)
     if ntpath.isabs(value) or Path(value).is_absolute():
         path = Path(value)
-        if not path.is_absolute() or not _inside(path, root):
-            fail("OUTSIDE_PROJECT")
+        canonical_path(value)
+        if not path.is_absolute():
+            fail("INVALID_PATH")
+        if not _inside(path, root):
+            return value
         try:
             value = str(path.relative_to(root)).replace(os.sep, "\\")
         except ValueError:
@@ -247,14 +280,16 @@ def _relative_tool_path(root, value):
     return value
 
 
-def approved_file(root, policy, value):
+def approved_file(root, policy, value, *, allow_missing=False):
     relative = _relative_tool_path(root, value)
+    # Validate controls and filesystem aliases even for trusted project files.
+    path = classified_path(root, relative, allow_missing=allow_missing)
+    if not Path(relative).is_absolute():
+        return path
     key = canonical_path(relative)
     entry = next((entry for entry in policy["files"] if canonical_path(entry["path"]) == key), None)
     if entry is None:
         fail("UNCLASSIFIED_FILE")
-    # Check the requested spelling too, so Windows aliases cannot redirect access.
-    path = classified_path(root, relative)
     if digest(path) != entry["sha256"]:
         fail("STALE_DIGEST")
     return path
@@ -316,7 +351,7 @@ def tool_decision(payload):
     elif name in ("edit", "create"):
         fields = ("path", "old_str", "new_str") if name == "edit" else ("path", "file_text")
         _keys(arguments, fields)
-        approved_file(root, policy, arguments["path"])
+        approved_file(root, policy, arguments["path"], allow_missing=name == "create")
         for key in fields[1:]:
             _text(arguments[key], nonempty=key == "old_str")
     elif name in ("rg", "grep"):
@@ -375,9 +410,16 @@ def approve(project, relative, category, reviewed=False):
     root = project_root(project)
     policy = load_policy(root)
     target = classified_path(root, relative)
+    relative = _relative_tool_path(root, relative)
+    if not Path(relative).is_absolute():
+        return {"status": "trusted", "reason": "PROJECT_ROOT_TRUSTED"}
     entry = {"path": relative, "category": category, "sha256": digest(target)}
     key = canonical_path(relative)
-    policy["files"] = [item for item in policy["files"] if canonical_path(item["path"]) != key] + [entry]
+    policy["files"] = [
+        item for item in policy["files"]
+        if Path(_relative_tool_path(root, item["path"])).is_absolute()
+        and canonical_path(item["path"]) != key
+    ] + [entry]
     validate_policy(policy)
     raw = (json.dumps(policy, ensure_ascii=True, indent=2) + "\n").encode("utf-8")
     if len(raw) > MAX_INPUT_BYTES:
