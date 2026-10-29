@@ -3,6 +3,7 @@
   "version": "1.1.0",
   "description": "Privacy-aware Microsoft Fabric authoring and migration agents with curated skills, native Windows CLI guardrails, and advisory-only VS Code setup.",
   "agents": "agents/",
+<<<<<<< HEAD
   "skills": [
     "skills/privacy-fabric-design",
     "skills/privacy-fabric-authoring",
@@ -11,6 +12,8 @@
     "skills/privacy-fabric-integration",
     "skills/privacy-fabric-osmos"
   ],
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
   "hooks": "hooks/hooks.json",
   "mcpServers": "mcp-config.json"
 }

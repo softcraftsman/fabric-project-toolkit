@@ -141,10 +141,17 @@
   <h2>The balance in one view</h2>
   <p class="lead">The plugin trusts the curated project tree, reviews access to external files, and keeps the productive parts of the workflow.</p>
   <div class="grid">
+<<<<<<< HEAD
     <div class="card stat callout-success"><b>Default deny</b><span>Unknown tools, connectors, unlisted skills/agents and arbitrary shell commands are blocked on the CLI hook path</span></div>
     <div class="card stat callout-info"><b>Root trust</b><span>Project files need no entries or hashes. Only external files require individual human approval and matching SHA-256 digests</span></div>
     <div class="card stat callout-success"><b>Synthetic diagnostics</b><span>Reviewed synthetic tests can return bounded errors; other tasks default to status-only</span></div>
     <div class="card stat callout-info"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
+=======
+    <div class="card stat"><b>Default deny</b><span>Unknown tools, connectors, unlisted skills/agents and arbitrary shell commands are blocked on the CLI hook path</span></div>
+    <div class="card stat"><b>Root trust</b><span>Project files need no entries or hashes. Only external files require individual human approval and matching SHA-256 digests</span></div>
+    <div class="card stat"><b>Synthetic diagnostics</b><span>Reviewed synthetic tests can return bounded errors; other tasks default to status-only</span></div>
+    <div class="card stat"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
   </div>
 </section>
 
@@ -361,7 +368,10 @@
   <h2>Fabric data engineering use cases and delivery impact</h2>
   <p class="lead">In a target project using the restrictive plugin, agents can author much of a solution but cannot independently deploy, run and validate it end to end.</p>
   <p>These constraints describe projects consuming the plugin, not this infrastructure-only toolkit repository. Impact describes workflow friction, not a measured productivity percentage. Allowed operations still require normal client permissions.</p>
+<<<<<<< HEAD
   <div class="table-scroll" role="region" aria-label="Engineering use cases table" tabindex="0">
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
   <table>
     <thead><tr><th scope="col">Engineering activity</th><th scope="col">Access and constraint</th><th scope="col">Practical impact</th></tr></thead>
     <tbody>
@@ -376,16 +386,23 @@
       <tr><td>Run and diagnose local synthetic tests</td><td>Conditional: human-reviewed task; diagnostics explicitly enabled with synthetic-only attestation and bounded output</td><td>Moderate setup friction, then useful local validation</td></tr>
       <tr><td>Install dependencies, run arbitrary CLI commands or perform long builds</td><td>Reviewed tasks only; the task runner has a 60-second limit</td><td>Moderate to high depending on tooling and build duration</td></tr>
       <tr><td>Refactor files, update CI and manage Git/GitHub workflows</td><td>File moves/deletes, protected configuration edits and direct commit/push commands blocked; supported read-only Git inspection allowed</td><td>Moderate; several routine steps require user execution</td></tr>
+<<<<<<< HEAD
       <tr><td>Use Fabric skills and specialist agents</td><td>Six curated offline skills bundled; named legacy skills and synchronous bundled-agent delegation remain gated</td><td>Less setup for offline authoring; expertise is available, not additional live permissions</td></tr>
       <tr><td>Use Osmos to analyze data inside Fabric without returning results to Copilot</td><td>Offline planning/consent/status contracts only; live dispatch is disabled. Future runs require explicit capacity consent and a verified pre-context adapter</td><td>Not yet usable for live analysis; user-run validation remains necessary</td></tr>
     </tbody>
   </table>
   </div>
+=======
+      <tr><td>Use Fabric skills and specialist agents</td><td>Conditional: named skills and synchronous bundled-agent delegation; child operations remain independently gated</td><td>Moderate; expertise is available, not additional permissions</td></tr>
+    </tbody>
+  </table>
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
   <p><strong>The largest bottleneck is the feedback loop, not code generation.</strong> Agents can deliver architecture, implementation files, synthetic tests, deployment scripts and manual validation queries. Production correctness, performance, permissions and operational readiness remain unverified until authorized live steps are completed.</p>
   <p>A greenfield solution with documented schemas supports workable assisted engineering. An existing, poorly documented Fabric environment is substantially more constrained. Narrow column-schema inspection and sanitized execution status are potential future improvements, not currently approved capabilities.</p>
   <div class="note"><strong>Connector verification and metadata limits.</strong> The restricted MCP tool exposure was protocol-tested, but actual Copilot plugin-server discovery and dispatch remain unverified. Inventory responses and service errors are not redacted; use only approved technical metadata and a least-privilege identity. Verify client and child-hook behavior with synthetic calls before relying on enforcement.</div>
 </section>
 
+<<<<<<< HEAD
 <section id="curated-skills-and-osmos">
   <h2>Curated Fabric expertise and the Osmos boundary</h2>
   <p>Reviewed Microsoft Fabric Skills guidance is adapted into six self-contained skills with pinned provenance and MIT attribution. Existing agents remain. Local code, definitions, migration assessments and synthetic tests are valid deliverables without live execution. Upstream MCP registrations, executable helpers and automatic updates are not imported.</p>
@@ -406,6 +423,8 @@
   </ul>
 </section>
 
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 </main>
 </div>
 <footer>Sources: <code>README.md</code>, <code>USE-CASES.md</code>, <code>PROJECT-GOALS.md</code>, <code>tools\privacy_guard.py</code>, <code>tools\osmos_boundary.py</code> and packaged configuration. Upstream attribution: <code>THIRD-PARTY-NOTICES.md</code>.</footer>

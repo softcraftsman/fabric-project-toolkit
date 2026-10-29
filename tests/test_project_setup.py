@@ -147,6 +147,7 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
         original["mcpServers"]["extra"] = {"type": "http", "url": "https://example.invalid"}
         path.write_text(json.dumps(original), encoding="utf-8")
         self.assertFalse(setup.check_wiring(plugin))
+<<<<<<< HEAD
 
     def test_preflight_rejects_unreviewed_or_missing_bundled_skills(self):
         plugin = self.make_plugin()
@@ -177,6 +178,8 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
             registered.add(name)
         self.assertEqual(guard.CURATED_SKILLS, registered)
 
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
     def test_init_serializes_policy_profile_and_preserves_user_files(self):
         existing = {
             Path(".github") / "copilot-instructions.md": "SYNTHETIC_PRIVATE_SENTINEL",
@@ -473,8 +476,11 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
             ("powershell", {"command": "git --no-pager diff --cached"}),
             ("web_fetch", {"url": "https://learn.microsoft.com/en-us/fabric/"}),
             ("skill", {"skill": "spark-cli"}),
+<<<<<<< HEAD
             ("skill", {"skill": "fabric-project-toolkit:privacy-fabric-authoring"}),
             ("skill", {"skill": "privacy-fabric-osmos"}),
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
             ("task", {
                 "agent_type": "fabric-project-toolkit:quality-engineer", "mode": "sync",
                 "description": "Diagnose synthetic tests", "prompt": contract,
@@ -490,6 +496,7 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
         }))
         self.assertIn("CLI_FABRIC_DELEGATION_REQUIRED", decision["permissionDecisionReason"])
         self.assertNotIn("Bypass denied access", decision["permissionDecisionReason"])
+<<<<<<< HEAD
         for name, arguments in (
             ("skill", {"skill": "project-osmos"}),
             ("osmos-run", {"task_id": "synthetic"}),
@@ -499,6 +506,8 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
                 "cwd": str(self.project), "toolName": name, "toolArgs": arguments,
             }))
             self.assertEqual("deny", denied["permissionDecision"])
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
         result = subprocess.run(
             [sys.executable, "-I", str(plugin / "tools" / "privacy_guard.py"),
              "mkdir", "--path", "src\\new\\nested"],

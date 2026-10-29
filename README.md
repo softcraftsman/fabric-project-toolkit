@@ -6,11 +6,14 @@ disclosure. The package retains its installation name, `fabric-project-toolkit`,
 and its existing agent roles. The [project goals](PROJECT-GOALS.md) define the
 intended direction.
 
+<<<<<<< HEAD
 Protect the organization's approved data and model boundary, whether the
 motivation is confidential business information, contractual restrictions,
 or HIPAA-regulated health information under a BAA. HIPAA is an example of why
 these controls are useful, not a product certification or the plugin's name.
 
+=======
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 See the [use-case and access-decision inventory](USE-CASES.md) for what is
 allowed, conditional, blocked, or outside this plugin's coverage.
 
@@ -41,6 +44,7 @@ The baseline approves only the narrow Fabric metadata tools described below,
 not live business-data queries. Synchronous delegation
 to the bundled Fabric agents is supported with the shared safety contract;
 child-hook enforcement must be verified in the target client.
+<<<<<<< HEAD
 Profiles inherit the configured model rather than pinning one. Six curated
 skills are now bundled; upstream skills and other MCP servers remain separate
 dependencies, not approval grants. The
@@ -103,6 +107,12 @@ a trusted human consent path, and synthetic checks of transport, errors,
 logging, retries and child-hook behavior. There is no live task link generator
 or enforced remote read-only/budget policy in this offline implementation.
 Do not use the unmodified upstream Osmos skill/helpers to bypass this gate.
+=======
+Profiles inherit the configured model rather than pinning one. Referenced skills
+and other MCP servers remain separate dependencies, not approval grants. The
+Microsoft Fabric MCP server is registered by this plugin with a pinned package
+and a restricted tool list.
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 
 ## What the baseline does
 
@@ -402,6 +412,7 @@ values in URLs. This checks the initial URL, not the fetcher's redirect chain;
 it is not a network-isolation control. General web search/browsing remains
 blocked.
 
+<<<<<<< HEAD
 The `skill` tool permits the six bundled `privacy-fabric-*` names, including
 their exact `fabric-project-toolkit:`-qualified forms, plus the legacy named
 Fabric workload/migration skills in `FABRIC_SKILLS` in `tools\privacy_guard.py`
@@ -411,6 +422,12 @@ offline workflow; prefer the curated skills. Upstream `project-osmos` is not
 allowlisted. Upstream now uses `onelake-catalog-cli`; the historical
 `onelake-catalog-govern-cli` entry is not a wildcard or approval for the new name.
 Loading instructions does not grant their tools extra permissions:
+=======
+The `skill` tool permits the named Fabric workload/migration skills listed
+in `FABRIC_SKILLS` in `tools\privacy_guard.py` (including `spark-cli`,
+`pipeline-migration`, and `semantic-model-authoring`). Skills must be installed
+separately. Loading instructions does not grant their tools extra permissions:
+>>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 documentation fetches are allowed; live MCP queries and unreviewed commands
 remain blocked. External reference files still need external-file approval.
 
