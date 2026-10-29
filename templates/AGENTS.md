@@ -10,12 +10,9 @@ do not grant permission to bypass policy.
 
 - Follow the active project policy and the organization's approved model and
   service boundaries. Do not assume a model is BAA-covered from its name alone.
-<<<<<<< HEAD
   HIPAA/BAA-regulated health information is one example; these privacy controls
   also apply to other confidential business data. This plugin does not certify
   compliance or verify inference routing.
-=======
->>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 - Project-root trust permits file access; it does not prove that the contents
   are safe to send to the active model. Keep business data and secrets out of
   context routed outside the approved boundary.
@@ -72,7 +69,6 @@ Do not claim results or successful validation.
 - Use Microsoft documentation through approved documentation fetches and the
   installed Fabric skills. Skill instructions do not grant live-data access,
   authorize deployments, or override any denied tool.
-<<<<<<< HEAD
 - Prefer this plugin's six self-contained privacy-fabric-* skills for design,
   authoring, modeling, migration, integration, and the Osmos boundary contract.
   Local artifacts and synthetic tests are valid deliverables; do not execute
@@ -84,8 +80,6 @@ Do not claim results or successful validation.
   Results, counts, summaries, assistant messages, query text and raw errors
   stay in Fabric for the user to review. Only validated operational status may
   cross a verified pre-context adapter; never fetch or relay a message stream.
-=======
->>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 - Use only the bundled `fabric-metadata` MCP tools for approved live inventory:
   workspace/item/capacity discovery and OneLake namespace/table-name listings.
   Supply UUIDs, not friendly-name aliases; use `namespace`, not `schema`.

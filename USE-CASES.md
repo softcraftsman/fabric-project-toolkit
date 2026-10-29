@@ -177,14 +177,11 @@ python -I '<installed-plugin-root>\tools\privacy_guard.py' run --task <reviewed-
 | Delegate to a bundled Fabric agent | Conditional | Synchronous `task` to an exact `fabric-project-toolkit:<role>` with the full AGENTS.md handoff contract. Verify child-hook inheritance with synthetic client tests; validating the parent request does not prove child enforcement. |
 | Delegate to arbitrary agents, override the delegated model, or use background delegation | Blocked | Not part of the constrained delegation grant. |
 | Load an allowlisted Fabric skill | Conditional | Exact name in `FABRIC_SKILLS`; skill must be installed. Follow-up tools remain independently gated, and external reference files still require approval. |
-<<<<<<< HEAD
 | Load a bundled privacy-fabric-* skill | Allowed | Six exact bare or fabric-project-toolkit-qualified names; self-contained offline authoring guidance, not an execution grant. No separate upstream bundle required. |
 | Incorporate upstream engineering expertise | Conditional | Curated, pinned adaptations with MIT attribution; no automatic updates, root instructions, executable helpers or upstream MCP registrations imported. Existing nine agents retained. |
 | Prepare a future Osmos analysis handoff | Conditional | Offline library validates task-scoped capacity-consent records and projects synthetic operational status. This is not a trusted approval UI or live service integration. |
 | Start Osmos from this plugin, even with capacity consent | Blocked | No approved transport or execution tool. Library dispatch always fails with OSMOS_LIVE_DISABLED. Consent is necessary for future runs but cannot enable this implementation. |
 | Return Osmos rows, counts, summaries, messages, raw errors or arbitrary URLs | Blocked by design | Offline status projection emits only validated IDs, fixed status and timestamps. The user reviews results in Fabric; no live response path has been verified. |
-=======
->>>>>>> cea605b57bfc6cd9a2bd0f37daab7c189851586a
 | Fetch public Microsoft documentation, including while using a Fabric skill | Conditional | `web_fetch` HTTPS on `learn.microsoft.com`, `docs.microsoft.com`, or `code.visualstudio.com`; no credentials/query/fragment. Never put business values in URLs. Initial URL check only; redirects are not constrained by the hook. |
 | Invoke unlisted skills, browser automation, general web search/fetch, IDE diagnostics, or semantic search tools | Blocked | The documentation/skill grants are narrow, not general tool access. |
 | Obtain a query/script for sampling business rows | Allowed | Guidance only: unexecuted read-only template from permitted schema knowledge, or explicitly marked placeholders. User runs and analyzes it in their authorized environment. |
