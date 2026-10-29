@@ -4,8 +4,8 @@ Project files need no inventory. External file changes require fresh approval.
 Policy checks do not establish that a client actually invokes this hook. Reviewed
 tasks execute mutable local code with the caller's privileges; output suppression
 does not prevent network access, credential access, or other child side effects.
-Bare and functions.-qualified built-ins share the same checks. Native grep's
-singular path is an explicit-file alias, never a default directory or glob.
+Bare and functions.-qualified built-ins share the same checks. Repository
+discovery rejects filesystem aliases; local history requires scoped templates.
 Installed agent profiles do not grant delegation or other tool capabilities.
 """
 
@@ -28,6 +28,7 @@ POLICY_PATH = Path(".copilot-privacy") / "policy.json"
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 MAX_INPUT_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 1024 * 1024
+MAX_SEARCH_ENTRIES = 50000
 TASK_TIMEOUT_SECONDS = 60
 TASK_PATTERN = re.compile(r"[a-z][a-z0-9-]{0,40}\Z", re.ASCII)
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
@@ -154,7 +155,7 @@ def _inside(path, parent):
         return False
 
 
-def classified_path(root, relative, *, allow_missing=False):
+def classified_path(root, relative, *, allow_missing=False, read_only=False):
     relative = _relative_tool_path(root, relative)
     absolute = Path(relative)
     external = absolute.is_absolute()
@@ -162,12 +163,15 @@ def classified_path(root, relative, *, allow_missing=False):
         str(absolute.relative_to(absolute.anchor)).replace(os.sep, "\\")
         if external else relative
     )
-    if any(part.casefold() in CONTROL_PARTS for part in parts) or parts[-1].casefold() in CONTROL_NAMES:
+    if not (read_only and not external) and (
+        any(part.casefold() in CONTROL_PARTS for part in parts)
+        or parts[-1].casefold() in CONTROL_NAMES
+    ):
         fail("CONTROL_PATH")
     if external and absolute.drive.startswith("\\\\"):
         fail("INVALID_PATH")
     path = absolute if external else root.joinpath(*parts)
-    if _inside(path, PLUGIN_ROOT):
+    if _inside(path, PLUGIN_ROOT) and not (read_only and not external):
         fail("CONTROL_PATH")
     if allow_missing and not external and not path.exists():
         try:
@@ -280,10 +284,10 @@ def _relative_tool_path(root, value):
     return value
 
 
-def approved_file(root, policy, value, *, allow_missing=False):
-    relative = _relative_tool_path(root, value)
+def approved_file(root, policy, value, *, allow_missing=False, read_only=False):
+    relative = _relative_tool_path(root, _text(value).replace("/", "\\"))
     # Validate controls and filesystem aliases even for trusted project files.
-    path = classified_path(root, relative, allow_missing=allow_missing)
+    path = classified_path(root, relative, allow_missing=allow_missing, read_only=read_only)
     if not Path(relative).is_absolute():
         return path
     key = canonical_path(relative)
@@ -293,6 +297,104 @@ def approved_file(root, policy, value, *, allow_missing=False):
     if digest(path) != entry["sha256"]:
         fail("STALE_DIGEST")
     return path
+
+
+def repository_path(root, value):
+    value = _text(value).replace("/", "\\")
+    if value == "." or value.casefold() == str(root).casefold():
+        return root
+    relative = _relative_tool_path(root, value)
+    if Path(relative).is_absolute():
+        fail("OUTSIDE_PROJECT")
+    path = root.joinpath(*_parts(relative))
+    _no_links(path)
+    if not _inside(path.resolve(strict=True), root.resolve(strict=True)):
+        fail("OUTSIDE_PROJECT")
+    return path
+
+
+def readable_tree(root, path):
+    # Native discovery tools cannot be rewritten by a hook. Check their entire
+    # possible input tree before allowing them, without opening file contents.
+    pending = [path]
+    count = 0
+    while pending:
+        current = pending.pop()
+        _no_links(current)
+        info = current.stat()
+        count += 1
+        if count > MAX_SEARCH_ENTRIES:
+            fail("SEARCH_SCOPE_LIMIT")
+        if stat.S_ISDIR(info.st_mode):
+            pending.extend(current.iterdir())
+        elif not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            fail("NOT_REGULAR_FILE")
+
+
+def search_path(root, policy, value):
+    value = _text(value).replace("/", "\\")
+    relative = _relative_tool_path(root, value)
+    if Path(relative).is_absolute():
+        approved_file(root, policy, value, read_only=True)
+    else:
+        readable_tree(root, repository_path(root, value))
+
+
+def glob_pattern(value):
+    value = _text(value).replace("/", "\\")
+    if ntpath.isabs(value) or ntpath.splitdrive(value)[0]:
+        fail("INVALID_PATH")
+    # Only ordinary components plus * and ?; no traversal, brace alternatives,
+    # extglobs or character classes that might change the apparent scope.
+    _parts(value.replace("*", "x").replace("?", "x"))
+    if any(char in value for char in "[]{}!"):
+        fail("INVALID_PATH")
+
+
+def history_query(root, arguments):
+    _keys(arguments, ("query", "description"), ("source",))
+    _text(arguments["description"])
+    if arguments.get("source") != "local":
+        fail("HISTORY_SCOPE_REQUIRED")
+    query = _text(arguments["query"])
+    literal = r"'(?P<cwd>(?:[^']|'')*)'"
+    sessions = (
+        r"SELECT\s+(?P<columns>[a-z_,.\s]+?)\s+FROM\s+sessions\s+"
+        r"WHERE\s+cwd\s*=\s*" + literal
+        + r"\s+ORDER\s+BY\s+updated_at\s+DESC\s+LIMIT\s+(?P<limit>[0-9]+)\s*;?\s*"
+    )
+    match = re.fullmatch(sessions, query, re.I)
+    allowed = {"id", "summary", "cwd", "repository", "branch", "created_at", "updated_at"}
+    if match is None:
+        joined = (
+            r"SELECT\s+(?P<columns>[a-z_,.\s]+?)\s+FROM\s+"
+            r"(?P<table>turns|checkpoints|session_files|session_refs)\s+AS\s+t\s+"
+            r"JOIN\s+sessions\s+AS\s+s\s+ON\s+t\.session_id\s*=\s*s\.id\s+"
+            r"WHERE\s+s\.cwd\s*=\s*" + literal
+            + r"\s+ORDER\s+BY\s+t\.(?P<order>[a-z_]+)\s+DESC\s+"
+            r"LIMIT\s+(?P<limit>[0-9]+)\s*;?\s*"
+        )
+        match = re.fullmatch(joined, query, re.I)
+        if match is None:
+            fail("HISTORY_SCOPE_REQUIRED")
+        tables = {
+            "turns": ("timestamp", {"session_id", "turn_index", "user_message", "assistant_response", "timestamp"}),
+            "checkpoints": ("created_at", {"session_id", "checkpoint_number", "title", "overview", "created_at"}),
+            "session_files": ("first_seen_at", {"session_id", "file_path", "tool_name", "turn_index", "first_seen_at"}),
+            "session_refs": ("created_at", {"session_id", "ref_type", "ref_value", "turn_index", "created_at"}),
+        }
+        order, fields = tables[match["table"].lower()]
+        if match["order"].lower() != order:
+            fail("HISTORY_SCOPE_REQUIRED")
+        allowed = {"t." + field for field in fields} | {"s.id", "s.summary", "s.cwd"}
+    columns = [column.strip().lower() for column in match["columns"].split(",")]
+    cwd = match["cwd"].replace("''", "'").replace("/", "\\")
+    if (
+        not columns or any(column not in allowed for column in columns)
+        or cwd.casefold() != str(root).casefold()
+        or not 1 <= int(match["limit"]) <= 100
+    ):
+        fail("HISTORY_SCOPE_REQUIRED")
 
 
 def runner_command(task):
@@ -317,7 +419,7 @@ def tool_decision(payload):
     root = project_root(_text(payload["cwd"]))
     policy = load_policy(root)
     name = _text(payload["toolName"])
-    known = {"ask_user", "view", "edit", "create", "rg", "grep", "powershell"}
+    known = {"ask_user", "view", "edit", "create", "rg", "grep", "glob", "session_store_sql", "powershell"}
     if name.startswith("functions.") and name[10:] in known:
         name = name[10:]
     if name not in known:
@@ -338,7 +440,14 @@ def tool_decision(payload):
         _bools(arguments, ("allow_freeform",))
     elif name == "view":
         _keys(arguments, ("path",), ("view_range", "forceReadLargeFiles"))
-        approved_file(root, policy, arguments["path"])
+        value = _text(arguments["path"]).replace("/", "\\")
+        if value == "." or (
+            not Path(_relative_tool_path(root, value)).is_absolute()
+            and repository_path(root, value).is_dir()
+        ):
+            readable_tree(root, repository_path(root, value))
+        else:
+            approved_file(root, policy, value, read_only=True)
         _bools(arguments, ("forceReadLargeFiles",))
         if "view_range" in arguments:
             limits = arguments["view_range"]
@@ -354,24 +463,41 @@ def tool_decision(payload):
         approved_file(root, policy, arguments["path"], allow_missing=name == "create")
         for key in fields[1:]:
             _text(arguments[key], nonempty=key == "old_str")
+    elif name == "session_store_sql":
+        history_query(root, arguments)
+    elif name == "glob":
+        _keys(arguments, ("pattern",), ("paths",))
+        glob_pattern(arguments["pattern"])
+        paths = arguments.get("paths", ".")
+        if isinstance(paths, str):
+            paths = [paths]
+        if not isinstance(paths, list) or not paths:
+            fail("INVALID_ARGUMENTS")
+        for value in paths:
+            readable_tree(root, repository_path(root, value))
     elif name in ("rg", "grep"):
         _keys(arguments, ("pattern",), (
             "paths", *(("path",) if name == "grep" else ()),
             "output_mode", "-i", "-n", "-A", "-B", "-C", "head_limit", "multiline",
+            "glob", "type",
         ))
         if _text(arguments["pattern"]).startswith("-"):
             fail("INVALID_ARGUMENTS")
-        if ("paths" in arguments) == ("path" in arguments):
+        if "paths" in arguments and "path" in arguments:
             fail("INVALID_ARGUMENTS")
         if "path" in arguments and not isinstance(arguments["path"], str):
             fail("INVALID_ARGUMENTS")
-        paths = arguments.get("paths", arguments.get("path"))
+        paths = arguments.get("paths", arguments.get("path", "."))
         if isinstance(paths, str):
             paths = [paths]
         if not isinstance(paths, list) or not paths:
             fail("INVALID_ARGUMENTS")
         for path in paths:
-            approved_file(root, policy, path)
+            search_path(root, policy, path)
+        if "glob" in arguments:
+            glob_pattern(arguments["glob"])
+        if "type" in arguments and not re.fullmatch(r"[a-zA-Z0-9_+-]{1,30}", _text(arguments["type"])):
+            fail("INVALID_ARGUMENTS")
         _bools(arguments, ("-i", "-n", "multiline"))
         if "output_mode" in arguments and arguments["output_mode"] not in ("content", "files_with_matches", "count"):
             fail("INVALID_ARGUMENTS")
@@ -387,6 +513,11 @@ def tool_decision(payload):
         if "initial_wait" in arguments and (type(arguments["initial_wait"]) is not int or not 30 <= arguments["initial_wait"] <= 600):
             fail("INVALID_ARGUMENTS")
         command = _text(arguments["command"])
+        if command in (
+            "git --no-pager status --short",
+            "git -c core.fsmonitor=false --no-pager status --short",
+        ):
+            return {}
         if not any(command == runner_command(task) for task in policy["tasks"]):
             fail("SHELL_DENIED")
         verify_files(root, policy)

@@ -42,7 +42,7 @@ CLI: native Windows preToolUse baseline only; fresh-session runtime UNVERIFIED.
 Install the reusable plugin manually. Do not copy its engine into this project.
 Run the installed plugin's tools\\project_setup.py preflight --project PATH
 from a human terminal. Files inside the project root and its subdirectories
-are trusted without per-file entries or hashes, except protected control paths.
+are readable without per-file entries or hashes; control paths remain read-only.
 Keep business data and secrets outside this trusted tree. Existing project
 policies adopt this behavior automatically; old internal digests are not checked.
 For external files only, run tools\\privacy_guard.py approve after human content
@@ -51,6 +51,18 @@ review, using --project PATH --path ABSOLUTE_FILE --category source|synthetic
 changed external files need reapproval. Never approve business values or secrets.
 The policy root is the exact absolute hook cwd; no parent-directory lookup.
 Hooks cannot control prompts, attachments, automatic context, or other clients.
+Project directory listings, glob discovery and directory searches are allowed;
+filesystem aliases, special files and external directory scopes remain blocked.
+git --no-pager status --short is allowed; other shell commands need review.
+For session_store_sql use source=local and the exact current project cwd:
+SELECT id, summary, updated_at FROM sessions WHERE cwd='<project-root>'
+ORDER BY updated_at DESC LIMIT 20
+SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t
+JOIN sessions AS s ON t.session_id=s.id WHERE s.cwd='<project-root>'
+ORDER BY t.timestamp DESC LIMIT 50
+Replace the placeholder and escape SQL apostrophes as ''. Only these scoped
+query shapes (and documented checkpoint/file/ref joins) with LIMIT 1-100 are
+allowed. History can contain old business data; scope is not content redaction.
 CLI hook timeouts fail open. Static checks do not prove installation,
 activation, hook dispatch, client compatibility, or personal/managed settings.
 No setup command installs plugins, changes authentication, or edits personal
@@ -115,6 +127,32 @@ def load_json(path):
     if unsafe_path(path) or not path.is_file() or path.stat().st_size > 1048576:
         raise ValueError("CONFIG_INVALID")
     return json.loads(path.read_text(encoding="utf-8-sig"), object_pairs_hook=unique_pairs)
+
+
+def install_instructions(project):
+    if not validate_project(project):
+        return report(["PROJECT_INVALID"], 0)
+    target = project / "AGENTS.md"
+    template = (PLUGIN_ROOT / "AGENTS.md").read_bytes()
+    start = b"<!-- fabric-project-toolkit:guidance:start -->"
+    end = b"<!-- fabric-project-toolkit:guidance:end -->"
+    if template.count(start) != 1 or template.count(end) != 1:
+        return report(["INSTRUCTIONS_TEMPLATE_INVALID"], 0)
+    if target.exists() or target.is_symlink():
+        if unsafe_path(target) or not target.is_file() or target.stat().st_nlink != 1:
+            return report(["INSTRUCTIONS_TARGET_INVALID"], 0)
+        existing = target.read_bytes()
+        if start in existing or end in existing:
+            if existing.count(template) == 1 and existing.count(start) == existing.count(end) == 1:
+                return report(["INSTRUCTIONS_ALREADY_INSTALLED"], 0, failed=False)
+            return report(["INSTRUCTIONS_REVIEW_REQUIRED"], 0)
+        # Preserve existing bytes exactly. Do not replace project instructions.
+        with target.open("ab") as stream:
+            stream.write(b"\n\n" + template)
+    else:
+        with target.open("xb") as stream:
+            stream.write(template)
+    return report(["INSTRUCTIONS_INSTALLED"], 1, failed=False)
 
 
 def unique_pairs(items):
@@ -280,12 +318,17 @@ def main(argv=None):
     for command, help_text in (
         ("init", "Create .copilot-privacy only; refuse any existing directory/content."),
         ("preflight", "Check static policy/wiring/overrides only; runtime remains UNVERIFIED."),
+        ("instructions", "Install shared AGENTS.md guidance; preserve existing instructions."),
     ):
         child = commands.add_parser(command, help=help_text, description=help_text)
         child.add_argument("--project", required=True, type=Path, help="Exact existing absolute project root; never searches parents.")
     args = parser.parse_args(argv)
     try:
-        return initialize(args.project) if args.command == "init" else preflight(args.project)
+        if args.command == "init":
+            return initialize(args.project)
+        if args.command == "instructions":
+            return install_instructions(args.project)
+        return preflight(args.project)
     except (OSError, ValueError, TypeError, RuntimeError):
         return report(["SETUP_FAILED"], 0)
 
