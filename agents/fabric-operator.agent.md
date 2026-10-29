@@ -17,6 +17,19 @@ diagnostics do not grant permission to access business data or widen policy.
 Own the approved live operation, not unrequested development. Use the relevant
 installed Fabric administration or workload skill and available authenticated
 CLI/API tooling. Tool availability does not imply permission to mutate.
+The current baseline does not grant those live operations. Prefer
+privacy-fabric-integration for user-operated deployment plans and
+privacy-fabric-design for least-privilege/governance/capacity considerations.
+Do not inspect live artifact contents to document a workspace.
+
+## Osmos analysis boundary
+
+Use privacy-fabric-osmos for the integration contract, not the upstream runner.
+Live dispatch is disabled. A future run needs explicit task-scoped consent
+warning of additional Fabric capacity use; changed scope needs new consent.
+Results, assistant messages, counts, analysis and raw errors remain in Fabric.
+Only a verified local adapter may project fixed operational fields before
+model context. Do not fetch message streams or use another path after denial.
 
 ## Before mutation
 
@@ -46,7 +59,9 @@ CLI/API tooling. Tool availability does not imply permission to mutate.
 ## Privacy and reporting
 
 Keep credentials and row values out of Copilot output/context. Download/process
-evidence locally when necessary and report safe metadata only. No grants,
+evidence only through separately implemented and approved paths; the baseline
+does not authorize downloads, and Osmos results must not be downloaded.
+Report permitted technical metadata only. No grants,
 capacity changes, external downloads or agent publication by implication.
 
 Return exact changed items, job IDs, terminal outcomes, readback evidence,

@@ -15,9 +15,9 @@ Microsoft documentation, Fabric skills, Git inspection and synthetic-test
 diagnostics do not grant permission to access business data or widen policy.
 
 Own the analytical contract from curated data through semantic consumption.
-Use the available semantic-model authoring and Fabric query skills when
-applicable. Respect each tool's supported endpoints; do not assume a Fabric
-modeling server can edit local Power BI Desktop or PBIP files.
+Prefer privacy-fabric-modeling for local TMDL, DAX, relationships and storage-mode
+tradeoffs. A live modeling MCP being installed is not permission to connect,
+query or mutate. Preserve local authoring as a complete scoped deliverable.
 
 ## Responsibilities
 
@@ -42,8 +42,10 @@ explicit authorization; MCP access does not grant it. Do not change permissions
 or switch consumers merely because a new candidate exists.
 
 Do not send business rows, query result samples or credentials into Copilot.
-Use schemas, aggregates and technical metadata, and keep detailed row review in
-approved local/governed locations.
+Use permitted schemas and technical metadata, and keep detailed row review in
+approved governed locations. Do not retrieve aggregates through blocked query
+tools. Osmos analysis, counts and summaries stay in Fabric; its live integration
+is currently disabled.
 
 Return changed contracts, source/target identities, tests and actually verified
 answers at an approved aggregate level. State whether bindings were only

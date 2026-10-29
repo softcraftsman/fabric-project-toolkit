@@ -1,10 +1,15 @@
-# Fabric project toolkit with privacy guardrails
+# Privacy-aware Fabric engineering toolkit
 
 A reusable, Windows-first GitHub Copilot CLI plugin combining targeted Fabric
 solution-building agents with controls to reduce accidental business-data
 disclosure. The package retains its installation name, `fabric-project-toolkit`,
 and its existing agent roles. The [project goals](PROJECT-GOALS.md) define the
 intended direction.
+
+Protect the organization's approved data and model boundary, whether the
+motivation is confidential business information, contractual restrictions,
+or HIPAA-regulated health information under a BAA. HIPAA is an example of why
+these controls are useful, not a product certification or the plugin's name.
 
 See the [use-case and access-decision inventory](USE-CASES.md) for what is
 allowed, conditional, blocked, or outside this plugin's coverage.
@@ -36,10 +41,68 @@ The baseline approves only the narrow Fabric metadata tools described below,
 not live business-data queries. Synchronous delegation
 to the bundled Fabric agents is supported with the shared safety contract;
 child-hook enforcement must be verified in the target client.
-Profiles inherit the configured model rather than pinning one. Referenced skills
-and other MCP servers remain separate dependencies, not approval grants. The
+Profiles inherit the configured model rather than pinning one. Six curated
+skills are now bundled; upstream skills and other MCP servers remain separate
+dependencies, not approval grants. The
 Microsoft Fabric MCP server is registered by this plugin with a pinned package
 and a restricted tool list.
+
+## Curated authoring and migration skills
+
+The plugin packages self-contained adaptations of reviewed
+[Microsoft Skills for Fabric](https://github.com/microsoft/skills-for-fabric)
+guidance. No separate Fabric bundle is required for these skills.
+
+| Skill | Deliverable |
+| --- | --- |
+| `privacy-fabric-design` | Architecture, medallion contracts, governance/isolation and capacity assumptions |
+| `privacy-fabric-authoring` | Local notebooks, Spark/SQL code, MLV drafts and synthetic validation |
+| `privacy-fabric-modeling` | Local TMDL/PBIP, DAX and relationship contracts |
+| `privacy-fabric-migration` | Local source assessment, compatibility mappings and conversion |
+| `privacy-fabric-integration` | Pipeline/M/KQL/event definitions, app connectivity and deployment plans |
+| `privacy-fabric-osmos` | Capacity-aware, no-business-results Fabric-side analysis contract; live dispatch disabled |
+
+Prefer these skills over upstream operational dispatchers. Local artifacts and
+synthetic tests are valid deliverables: completing authoring does not require
+a live query, deployment, refresh or terminal write. All nine existing agent
+roles remain; their guidance incorporates reviewed cross-workload, migration,
+administration and application patterns without importing upstream agents'
+execution authority.
+
+[Third-party notices](THIRD-PARTY-NOTICES.md) records the reviewed revision,
+source mapping and MIT attribution. Upstream updates require deliberate review;
+no upstream auto-update, helper script, root instructions, wildcard MCP
+registration or FabricIQ live-insights workflow is imported. These concise
+adaptations are not the complete upstream reference library; verify detailed
+API syntax through permitted documentation.
+
+## Osmos: gated integration, not enabled execution
+
+The intended path is to run queries/analysis inside an organization-approved
+Fabric service boundary and leave business results there for the user to view.
+Before any future run, ask for **explicit approval of the exact task** and warn
+that it consumes additional Fabric capacity. Changed scope needs new consent.
+Do not invent prices, claim a budget cap, or infer consent from earlier work.
+
+`tools\osmos_boundary.py` implements offline request validation, consent binding
+to the task/workspace/default-lakehouse/instruction digest, and a narrow status
+projection. Tests exercise those contracts with fictional responses.
+**It has no network transport; `dispatch` always raises `OSMOS_LIVE_DISABLED`.**
+The module is not a new approved shell command, skill loading does not invoke
+it, and an approval-shaped record does not establish that a human approved it.
+
+A future trusted local adapter must project only validated task/operation IDs,
+fixed statuses and timestamps **before** model exposure. Business rows, counts,
+analytical summaries, assistant messages, query text, raw errors, credentials,
+and arbitrary URLs are excluded. Results and clarification exchanges stay in
+Fabric. Instructions telling a remote model not to return data are insufficient.
+No live result files should be written into the trusted project or history.
+
+Live enablement still requires a verified service/authentication/URL contract,
+a trusted human consent path, and synthetic checks of transport, errors,
+logging, retries and child-hook behavior. There is no live task link generator
+or enforced remote read-only/budget policy in this offline implementation.
+Do not use the unmodified upstream Osmos skill/helpers to bypass this gate.
 
 ## What the baseline does
 
@@ -339,10 +402,15 @@ values in URLs. This checks the initial URL, not the fetcher's redirect chain;
 it is not a network-isolation control. General web search/browsing remains
 blocked.
 
-The `skill` tool permits the named Fabric workload/migration skills listed
-in `FABRIC_SKILLS` in `tools\privacy_guard.py` (including `spark-cli`,
-`pipeline-migration`, and `semantic-model-authoring`). Skills must be installed
-separately. Loading instructions does not grant their tools extra permissions:
+The `skill` tool permits the six bundled `privacy-fabric-*` names, including
+their exact `fabric-project-toolkit:`-qualified forms, plus the legacy named
+Fabric workload/migration skills in `FABRIC_SKILLS` in `tools\privacy_guard.py`
+(including `spark-cli`, `pipeline-migration`, and `semantic-model-authoring`).
+Legacy upstream skills must be installed separately and may conflict with the
+offline workflow; prefer the curated skills. Upstream `project-osmos` is not
+allowlisted. Upstream now uses `onelake-catalog-cli`; the historical
+`onelake-catalog-govern-cli` entry is not a wildcard or approval for the new name.
+Loading instructions does not grant their tools extra permissions:
 documentation fetches are allowed; live MCP queries and unreviewed commands
 remain blocked. External reference files still need external-file approval.
 

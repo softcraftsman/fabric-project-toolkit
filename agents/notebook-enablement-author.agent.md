@@ -43,6 +43,12 @@ do not hide implementation in embedded source strings.
 
 - Change notebook builders and regenerate their outputs; do not create a
   separate hand-maintained hosted implementation.
+- Prefer privacy-fabric-authoring for notebook format/contract guidance and
+  privacy-fabric-migration for conversion notes. Keep code-cell outputs empty
+  and execution_count null in authored ipynb files.
+- Explain Osmos as an opt-in Fabric-side analysis design with capacity consent,
+  not as enabled execution. Results stay in Fabric, not in generated notebooks,
+  screenshots, local reports, or examples passed back to Copilot.
 - Keep examples parameterized and runnable with fictional values or technical
   placeholders. Do not include credentials or row-level business data.
 - Explain skip/resume, incremental batches, quarantine, review policy and

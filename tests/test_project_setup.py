@@ -65,8 +65,10 @@ class ProjectWorkspace:
         for relative in (
             Path("plugin.json"), Path("mcp-config.json"), Path("hooks") / "hooks.json",
             Path("hooks") / "Invoke-PrivacyGuard.ps1",
+            Path("tools") / "osmos_boundary.py",
         ):
             shutil.copyfile(ROOT / relative, plugin / relative)
+        shutil.copytree(ROOT / "skills", plugin / "skills")
         engine = plugin / "tools" / "privacy_guard.py"
         if script is None:
             shutil.copyfile(ROOT / "tools" / "privacy_guard.py", engine)
@@ -145,6 +147,36 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
         original["mcpServers"]["extra"] = {"type": "http", "url": "https://example.invalid"}
         path.write_text(json.dumps(original), encoding="utf-8")
         self.assertFalse(setup.check_wiring(plugin))
+
+    def test_preflight_rejects_unreviewed_or_missing_bundled_skills(self):
+        plugin = self.make_plugin()
+        path = plugin / "plugin.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        manifest["skills"].append("skills/unreviewed")
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        self.assertFalse(setup.check_wiring(plugin))
+        shutil.copyfile(ROOT / "plugin.json", path)
+        (plugin / setup.CURATED_SKILL_PATHS[0] / "SKILL.md").unlink()
+        self.assertFalse(setup.check_wiring(plugin))
+
+    def test_bundled_skill_registration_resolves_self_contained_frontmatter(self):
+        manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
+        spec = importlib.util.spec_from_file_location("bundled_guard", ROOT / "tools" / "privacy_guard.py")
+        guard = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(guard)
+        registered = set()
+        for relative in manifest["skills"]:
+            path = ROOT / relative / "SKILL.md"
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith("---\n"), relative)
+            metadata = text.split("---", 2)[1]
+            name = next(line[6:] for line in metadata.splitlines() if line.startswith("name: "))
+            self.assertEqual(path.parent.name, name)
+            self.assertIn("description: ", metadata)
+            self.assertNotIn("references/", text)
+            registered.add(name)
+        self.assertEqual(guard.CURATED_SKILLS, registered)
+
     def test_init_serializes_policy_profile_and_preserves_user_files(self):
         existing = {
             Path(".github") / "copilot-instructions.md": "SYNTHETIC_PRIVATE_SENTINEL",
@@ -441,6 +473,8 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
             ("powershell", {"command": "git --no-pager diff --cached"}),
             ("web_fetch", {"url": "https://learn.microsoft.com/en-us/fabric/"}),
             ("skill", {"skill": "spark-cli"}),
+            ("skill", {"skill": "fabric-project-toolkit:privacy-fabric-authoring"}),
+            ("skill", {"skill": "privacy-fabric-osmos"}),
             ("task", {
                 "agent_type": "fabric-project-toolkit:quality-engineer", "mode": "sync",
                 "description": "Diagnose synthetic tests", "prompt": contract,
@@ -456,6 +490,15 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
         }))
         self.assertIn("CLI_FABRIC_DELEGATION_REQUIRED", decision["permissionDecisionReason"])
         self.assertNotIn("Bypass denied access", decision["permissionDecisionReason"])
+        for name, arguments in (
+            ("skill", {"skill": "project-osmos"}),
+            ("osmos-run", {"task_id": "synthetic"}),
+            ("fabric-sqlendpoint-execute_query", {"query": "SELECT 1"}),
+        ):
+            denied = self.invoke_wrapper(plugin, json.dumps({
+                "cwd": str(self.project), "toolName": name, "toolArgs": arguments,
+            }))
+            self.assertEqual("deny", denied["permissionDecision"])
         result = subprocess.run(
             [sys.executable, "-I", str(plugin / "tools" / "privacy_guard.py"),
              "mkdir", "--path", "src\\new\\nested"],

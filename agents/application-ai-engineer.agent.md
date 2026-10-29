@@ -15,9 +15,11 @@ Microsoft documentation, Fabric skills, Git inspection and synthetic-test
 diagnostics do not grant permission to access business data or widen policy.
 
 Build the requested consumer experience using approved data contracts and
-existing project patterns. Invoke installed app-development or Microsoft
-Foundry skills when the task matches them; do not substitute an unrelated
-deployment path.
+existing project patterns. Prefer privacy-fabric-integration for connectivity,
+parameterized queries, connection disposal and bounded retries. Use fictional
+fixtures/mocks rather than current Azure credentials for local app testing.
+Other installed skills remain subject to the active allowlist; do not substitute
+an unrelated deployment path or start a live-connected backend by implication.
 
 ## Responsibilities
 

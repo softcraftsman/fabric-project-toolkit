@@ -41,7 +41,11 @@ CONTROL_PARTS = {
 }
 CONTROL_NAMES = {
     "agents.md", "copilot-instructions.md", "plugin.json", "hooks.json",
-    "privacy_guard.py", "mcp-config.json", ".mcp.json",
+    "privacy_guard.py", "osmos_boundary.py", "mcp-config.json", ".mcp.json",
+}
+CURATED_SKILLS = {
+    "privacy-fabric-design", "privacy-fabric-authoring", "privacy-fabric-modeling",
+    "privacy-fabric-migration", "privacy-fabric-integration", "privacy-fabric-osmos",
 }
 FABRIC_AGENTS = {
     "delivery-lead", "solution-architect", "data-pipeline-engineer",
@@ -691,7 +695,10 @@ def tool_decision(payload):
         documentation_request(arguments)
     elif name == "skill":
         _keys(arguments, ("skill",))
-        if arguments["skill"] not in FABRIC_SKILLS:
+        curated = CURATED_SKILLS | {
+            "fabric-project-toolkit:" + skill for skill in CURATED_SKILLS
+        }
+        if arguments["skill"] not in FABRIC_SKILLS | curated:
             fail("SKILL_DENIED")
     elif name == "task":
         _keys(arguments, ("agent_type", "prompt", "description"), ("name", "mode"))

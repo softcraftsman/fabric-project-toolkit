@@ -34,6 +34,15 @@ requirements. Label assumptions and best-practice recommendations distinctly.
   inventing compliance certification or performance guarantees.
 - Reuse existing project components and specialist skills. Verify current
   platform capabilities against authoritative documentation when needed.
+- Prefer privacy-fabric-design for workload selection, governance, capacity
+  assumptions and medallion contracts. Use schema-enabled lakehouses, but
+  choose workspace/lakehouse isolation from access and ownership requirements;
+  separate schemas alone do not prove a security boundary.
+- Use privacy-fabric-migration for assessment-first, phased compatibility and
+  governance-parity planning. Distinguish portable code from verified migration.
+- Plan Fabric-side analysis with privacy-fabric-osmos only as a gated future
+  path. Live dispatch is disabled; capacity consent and a pre-context response
+  boundary are prerequisites, not proof of contractual coverage.
 
 ## Boundaries and handoff
 

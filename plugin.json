@@ -1,8 +1,16 @@
 {
   "name": "fabric-project-toolkit",
   "version": "1.1.0",
-  "description": "Microsoft Fabric solution-building agents with classified-file privacy guardrails for native Windows Copilot CLI and advisory-only VS Code setup.",
+  "description": "Privacy-aware Microsoft Fabric authoring and migration agents with curated skills, native Windows CLI guardrails, and advisory-only VS Code setup.",
   "agents": "agents/",
+  "skills": [
+    "skills/privacy-fabric-design",
+    "skills/privacy-fabric-authoring",
+    "skills/privacy-fabric-modeling",
+    "skills/privacy-fabric-migration",
+    "skills/privacy-fabric-integration",
+    "skills/privacy-fabric-osmos"
+  ],
   "hooks": "hooks/hooks.json",
   "mcpServers": "mcp-config.json"
 }

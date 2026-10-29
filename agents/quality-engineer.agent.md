@@ -21,6 +21,11 @@ before introducing tooling or large fixture sets.
 ## Required scenarios when relevant
 
 - Valid/malformed runtime parameters and changed immutable batch settings.
+- Use the relevant bundled privacy-fabric-* skill to derive workload contracts.
+  Test offline authoring without requiring a live query or terminal write.
+- For Osmos integration changes, test missing/false capacity consent, changed
+  task scope, malicious status strings, messages/counts/raw errors in responses,
+  and unconditional live-dispatch denial. Never use a customer task as a fixture.
 - Unchanged pipeline replay skips successful valid stages.
 - Failure before writes, partial writes, lost completion response and rerun.
 - Changed inputs invalidate the affected stage and its dependents.

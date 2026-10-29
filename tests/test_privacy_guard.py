@@ -106,6 +106,26 @@ class PrivacyGuardTests(unittest.TestCase):
             "prompt": "Run synthetic tests",
         })
 
+    def test_curated_skills_load_without_granting_upstream_osmos_or_query_access(self):
+        for skill in guard.CURATED_SKILLS:
+            for name in (skill, "fabric-project-toolkit:" + skill):
+                self.assertEqual({}, self.decision("skill", {"skill": name}))
+        for name in (
+            "project-osmos", "fabric-skills:project-osmos",
+            "fabric-project-toolkit:project-osmos",
+            "fabric-project-toolkit:privacy-fabric-unreviewed",
+        ):
+            self.denied("skill", {"skill": name})
+        self.denied("powershell", {
+            "command": "python -I 'tools\\osmos_boundary.py' run",
+        })
+        self.denied("osmos-run", {"task_id": "synthetic"})
+        self.denied("fabric-sqlendpoint-execute_query", {"query": "SELECT 1"})
+        self.denied("edit", {
+            "path": str(self.root / "osmos_boundary.py"),
+            "old_str": "False", "new_str": "True",
+        })
+
     def test_malformed_payloads_bom_encoding_and_no_input_leaks(self):
         for raw in (
             b"", b"\xff", b"[]", b"null", b'{"a":1,"a":2}',

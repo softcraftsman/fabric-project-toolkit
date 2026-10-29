@@ -3,8 +3,11 @@
 ## Purpose and scope
 
 Build a reusable plugin that projects can adopt to reduce accidental disclosure
-of business data to GitHub Copilot models outside the approved Business
-Associate Agreement (BAA) boundary.
+of business data to GitHub Copilot models outside the organization's approved
+data/model boundary. Use privacy-aware Fabric engineering terminology rather
+than a HIPAA-protected product claim. HIPAA-regulated health information under
+a Business Associate Agreement (BAA) is one motivating example, alongside other
+confidential business information and contractual restrictions.
 
 The initial scope covers GitHub Copilot CLI and VS Code Copilot. Protection must
 act before restricted information enters model context, not merely redact
@@ -96,6 +99,8 @@ no automatic exception. Project-local business data is not screened.
 | --- | --- |
 | CLI tool access | Project-root reads/discovery/directory creation, digest-approved external files, read-only Git status/diff/log, flexible project-scoped local history, Microsoft documentation, named Fabric skills/agents, constrained metadata MCP operations and task wrappers; other capabilities default-deny |
 | Fabric agents | Retain targeted solution-building roles alongside the guardrails; review capabilities without granting blanket access |
+| Curated skills | Six self-contained offline authoring/design/modeling/migration/integration/Osmos-planning skills adapted from a pinned, attributed upstream revision; no upstream execution helpers or MCP grants |
+| Osmos | Offline consent-binding and operational-status projection contracts only. Live dispatch unconditionally disabled until verified transport, trusted human capacity consent, and pre-context response filtering are implemented |
 | Content classification | No per-file registration or hashes inside the project; external source/synthetic approvals require digests; protected control paths remain blocked |
 | Local development | Reviewed tasks default to status-only; explicitly attested synthetic tests can return bounded diagnostics for failure analysis. Execution is not sandboxed |
 | VS Code | Conservative manually selected profile; no claim of equivalent tool interception |

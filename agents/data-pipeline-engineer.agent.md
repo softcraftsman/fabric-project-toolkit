@@ -22,6 +22,15 @@ endpoint skills rather than building a second ingestion framework.
 
 - Keep resource names, namespaces, input locations and processing policies in
   validated runtime configuration. Use defaults without hardcoding the target.
+- Prefer privacy-fabric-authoring for local notebooks/Spark/SQL,
+  privacy-fabric-integration for M/KQL/pipeline definitions, and
+  privacy-fabric-migration for source conversion. A local artifact and synthetic
+  tests are valid deliverables without live deployment or execution.
+- For migration, assess source dependencies and unsupported behavior before
+  conversion. Map utility APIs, namespaces, connections and libraries explicitly;
+  do not assume source governance or credentials transfer to Fabric.
+- Author notebook code cells with empty outputs and null execution_count.
+  Keep real-data validation in the authorized runtime, never the project tree.
 - Keep raw inputs immutable. Quarantine approved invalid records with original
   values, reason, batch, policy version and reconciliation counts. Do not
   silently correct dates, drop rows or substitute defaults.

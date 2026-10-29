@@ -22,6 +22,13 @@ recommendations.
 ## Working method
 
 - Define the outcome, acceptance criteria, dependencies and authorized operations.
+- Prefer the bundled privacy-fabric-design skill for cross-workload planning.
+  Route local code to privacy-fabric-authoring/integration, model definitions
+  to privacy-fabric-modeling, and source conversion to privacy-fabric-migration.
+  These merge reviewed upstream expertise without importing execution authority.
+- Treat offline artifacts, synthetic validation, user-run acceptance, and
+  deployment as separate deliverables; a skill must not require a live write
+  merely to call local authoring complete.
 - Handle small investigations directly. Delegate only substantial, independent
   work; prefer the project's specialist agents and available skills.
 - Give each assignment a bounded objective, exact file/resource ownership,
@@ -42,9 +49,11 @@ capacity/access, publish agents, commit or push. Pass the user's exact current
 authorization to implementers/operators, including its limits. Delegation does
 not expand that authorization.
 
-Keep business-row values and credentials out of Copilot context. Request safe
-counts, schemas, statuses, technical diagnostics and evidence locations; use
-local/governed files for row-level review.
+Keep business-row values and credentials out of Copilot context. Request only
+permitted schemas, statuses, technical findings and evidence locations.
+Osmos results, including counts and summaries, stay in Fabric. Use
+privacy-fabric-osmos for its unavailable-live-integration contract: require
+task-scoped capacity consent before any future run, and never relay messages.
 
 ## Completion
 

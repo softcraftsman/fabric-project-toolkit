@@ -33,6 +33,11 @@ FABRIC_MCP_TOOLS = (
     "core_list-capacities", "core_get-capacity",
     "onelake_list-table-namespaces", "onelake_list-tables",
 )
+CURATED_SKILL_PATHS = (
+    "skills/privacy-fabric-design", "skills/privacy-fabric-authoring",
+    "skills/privacy-fabric-modeling", "skills/privacy-fabric-migration",
+    "skills/privacy-fabric-integration", "skills/privacy-fabric-osmos",
+)
 
 
 def fabric_mcp_servers():
@@ -84,7 +89,15 @@ web_fetch permits public HTTPS documentation on learn.microsoft.com,
 docs.microsoft.com and code.visualstudio.com without credentials/query/fragment.
 This checks the initial URL, not redirects. Never put business values in URLs.
 Allowlisted Fabric skills may be loaded; their tools remain independently gated.
+Prefer the six bundled privacy-fabric-* skills for offline authoring/migration.
+They are self-contained; no upstream MCP registrations or helpers are bundled.
 External skill reference files still need individual approval.
+Osmos integration is OFFLINE ONLY: capacity-consent and operational-status
+projection contracts are synthetic-tested, but dispatch always fails closed.
+Live enablement requires verified service contracts and a trusted human approval
+path. Never relay Osmos messages, counts, analysis, raw errors or query results.
+Ask before any future capacity-consuming operation, with explicit scope and a
+capacity-usage warning; do not infer consent or invent prices.
 The plugin bundles the pinned Microsoft Fabric MCP server as fabric-metadata.
 Only named offline documentation and live workspace/item/capacity discovery
 and OneLake namespace/table-name listing are exposed. Exact argument checks
@@ -231,7 +244,8 @@ def check_wiring(plugin_root):
             or manifest.get("hooks") != "hooks/hooks.json"
             or manifest.get("agents") != "agents/"
             or "$schema" in manifest
-            or any(key in manifest for key in ("skills", "lspServers", "extensions"))
+            or any(key in manifest for key in ("lspServers", "extensions"))
+            or manifest.get("skills") != list(CURATED_SKILL_PATHS)
             or manifest.get("mcpServers") != "mcp-config.json"
             or load_json(plugin_root / "mcp-config.json") != {"mcpServers": fabric_mcp_servers()}
             or hooks != expected
@@ -243,6 +257,8 @@ def check_wiring(plugin_root):
             for path in (
                 plugin_root / "hooks" / "Invoke-PrivacyGuard.ps1",
                 plugin_root / "tools" / "privacy_guard.py",
+                plugin_root / "tools" / "osmos_boundary.py",
+                *(plugin_root / path / "SKILL.md" for path in CURATED_SKILL_PATHS),
             )
         )
     except (OSError, ValueError, TypeError, AttributeError):

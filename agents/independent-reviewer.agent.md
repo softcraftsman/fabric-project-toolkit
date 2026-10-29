@@ -32,6 +32,10 @@ Read enough context to understand the affected behavior and call paths.
 - Unauthorized mutations, leaked credentials/row values, or unreviewed broad
   cleanup.
 - Generated artifacts that drift from their source builders.
+- Curated skill instructions that reintroduce mandatory live execution,
+  wildcard connector access, or alternate-path retries after denial.
+- Osmos consent not bound to exact task scope, or messages, counts, summaries,
+  raw errors and arbitrary URLs crossing the model-context boundary.
 
 For each finding provide severity, exact file/lines, concrete failure scenario,
 impact and confidence. Distinguish a proven defect from missing evidence.
