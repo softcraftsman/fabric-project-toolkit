@@ -62,9 +62,9 @@
   <h2>The balance in one view</h2>
   <p class="lead">The plugin trusts the curated project tree, reviews access to external files, and keeps the productive parts of the workflow.</p>
   <div class="grid">
-    <div class="card stat"><b>Default deny</b><span>Unknown tools, connectors, skills, delegation and arbitrary shell commands are blocked on the CLI hook path</span></div>
+    <div class="card stat"><b>Default deny</b><span>Unknown tools, connectors, unlisted skills/agents and arbitrary shell commands are blocked on the CLI hook path</span></div>
     <div class="card stat"><b>Root trust</b><span>Project files need no entries or hashes. Only external files require individual human approval and matching SHA-256 digests</span></div>
-    <div class="card stat"><b>Status only</b><span>Approved tasks (for example tests) report pass/fail, not raw output, to the model</span></div>
+    <div class="card stat"><b>Synthetic diagnostics</b><span>Reviewed synthetic tests can return bounded errors; other tasks default to status-only</span></div>
     <div class="card stat"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
   </div>
 </section>
@@ -122,7 +122,7 @@
       <rect x="315" y="225" width="180" height="52" rx="6" fill="#fff" stroke="#1a7f4b"/>
       <text x="325" y="245" font-weight="600">Project / approved external</text><text x="325" y="263" font-size="11" fill="#5a6572">Only external files are hashed</text>
       <rect x="315" y="315" width="180" height="52" rx="6" fill="#fff" stroke="#1a7f4b"/>
-      <text x="325" y="335" font-weight="600">Reviewed task runner</text><text x="325" y="353" font-size="11" fill="#5a6572">Runs tests, returns status only</text>
+      <text x="325" y="335" font-weight="600">Reviewed task runner</text><text x="325" y="353" font-size="11" fill="#5a6572">Synthetic tests: bounded diagnostics</text>
       <rect x="315" y="395" width="180" height="40" rx="6" fill="#fff" stroke="#5a6572"/>
       <text x="325" y="412" font-weight="600">External file approval</text><text x="325" y="427" font-size="11" fill="#5a6572">Human review + SHA-256</text>
 
@@ -139,9 +139,9 @@
       <text x="757" y="212" font-weight="600">Model receives</text>
       <text x="757" y="232" font-size="11" fill="#1a7f4b">Allowed: project files</text>
       <text x="757" y="248" font-size="11" fill="#1a7f4b">Allowed: synthetic data</text>
-      <text x="757" y="264" font-size="11" fill="#1a7f4b">Allowed: pass / fail status</text>
+      <text x="757" y="264" font-size="11" fill="#1a7f4b">Allowed: synthetic test errors</text>
       <text x="757" y="288" font-size="11" fill="#b42318">Must not receive: PHI / PII</text>
-      <text x="757" y="304" font-size="11" fill="#b42318">rows, secrets, raw outputs</text>
+      <text x="757" y="304" font-size="11" fill="#b42318">business rows, secrets</text>
     </g>
 
     <rect x="510" y="70" width="30" height="370" rx="6" fill="#1a7f4b"/>
@@ -198,10 +198,10 @@
       <tr><td>Agent reads an unapproved external extract, export, log or notebook output</td><td>External files require individual source/synthetic approval and matching SHA-256 digest; project files are trusted without hashes</td><td><span class="tag blocked">Blocked externally</span></td></tr>
       <tr><td>Agent searches outside the trusted project tree</td><td>Directory listings, glob discovery and directory searches stay inside the project; external content searches require approved individual files. Trees containing filesystem aliases or special files are denied</td><td><span class="tag blocked">Scoped</span></td></tr>
       <tr><td>An approved external file is changed</td><td>Digest mismatch blocks reads, searches and edits until human reapproval; internal changes are not checked</td><td><span class="tag blocked">Blocked externally</span></td></tr>
-      <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>MCP and connector tools have no baseline approval</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>Agent runs an arbitrary command, script or query and reads the output</td><td>Shell limited to one reviewed-task wrapper; no raw child output returned</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>Agent pulls another project's history or arbitrary diagnostics</td><td>Local history requires fixed SQL templates filtering sessions by the exact project cwd. Cloud/cross-project history and arbitrary diagnostics remain denied</td><td><span class="tag blocked">Scoped</span></td></tr>
-      <tr><td>Agent hands work to another agent, skill or browser with broader access</td><td>Delegation, skills and browsing denied by default</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>Queries and data access remain denied. The pinned Microsoft Fabric MCP exposes only 6 offline documentation tools and 7 inventory tools for workspaces, items, capacities, namespaces and table names</td><td><span class="tag blocked">Data blocked</span></td></tr>
+      <tr><td>Agent runs an arbitrary command, script or query and reads the output</td><td>Shell limited to constrained directory creation, read-only Git inspection and reviewed tasks. Only attested synthetic-test tasks return bounded child diagnostics</td><td><span class="tag blocked">Scoped</span></td></tr>
+      <tr><td>Agent pulls another project's history or arbitrary diagnostics</td><td>Flexible local history searches require the exact project cwd filter; no plugin row cap. SQL validation blocks scope-widening queries. Cloud/cross-project history and arbitrary diagnostics remain denied</td><td><span class="tag blocked">Scoped</span></td></tr>
+      <tr><td>Agent hands work to another agent, skill or browser with broader access</td><td>Only named Fabric skills and synchronous bundled agents with the safety contract. Child-hook inheritance requires client verification; skill tools remain gated. Microsoft documentation initial URLs are allowlisted, not redirect chains. General browsing remains denied</td><td><span class="tag reduced">Conditional</span></td></tr>
       <tr><td>Agent edits the policy or hook to widen its own access</td><td>Project control files are readable but not writable targets; approval is a human-only command</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Selecting a Fabric agent role implies data access</td><td>Roles are guidance only; the same tool restrictions apply to every role</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Team cannot tell whether protection is configured</td><td>Preflight reports static checks and always states that runtime enforcement is unverified</td><td><span class="tag reduced">Visible</span></td></tr>
@@ -223,6 +223,7 @@
       <tr><td>VS Code inline suggestions, open editors and selections</td><td>The CLI hook does not intercept VS Code</td><td><span class="tag open">Open</span> Code-only workspace; administrator-managed policy</td></tr>
       <tr><td>Hook not loaded, disabled, or timed out</td><td>Documented host behavior: a hook timeout falls back to normal permissions</td><td><span class="tag open">Open</span> Machine-wide administrator hook policy</td></tr>
       <tr><td>Approved task code reads data or uses the network</td><td>Tasks run with the user's permissions; output capture is not a sandbox</td><td><span class="tag open">Open</span> Curated environment with no data or live credentials</td></tr>
+      <tr><td>Allowed Fabric inventory contains sensitive names, descriptions, tags or errors</td><td>Tool and argument restrictions do not redact responses; OneLake listings include raw metadata. Discovery follows the server identity, not a project workspace allowlist</td><td><span class="tag open">Open</span> Curated technical metadata and least-privilege credentials; no business values</td></tr>
       <tr><td>A user deliberately bypasses controls</td><td>A plugin cannot stop the machine owner</td><td><span class="tag open">Open</span> OS-level access controls and least privilege</td></tr>
     </tbody>
   </table>
@@ -241,7 +242,8 @@
       <strong>Still works</strong>
       <ul>
         <li>Reading, creating and editing project files without per-file registration or hashes</li>
-        <li>Project directory/glob discovery, directory searches, Git status and project-scoped local history</li>
+        <li>Project directory creation/discovery, searches, Git diff/log/status and project-scoped local history</li>
+        <li>Public Microsoft documentation, named Fabric skills/agents and reviewed synthetic-test diagnostics; no live business-row queries or requests for their output</li>
         <li>Reading and editing individually approved external files while their digests match</li>
         <li>Generating and reviewing code, notebooks and pipeline definitions</li>
         <li>Running reviewed tests and builds, with pass/fail reporting</li>
@@ -252,8 +254,8 @@
       <strong>Deliberately limited</strong>
       <ul>
         <li>Only external files require individual approval and reapproval after changes</li>
-        <li>No live Fabric queries or connector tools in the baseline</li>
-        <li>Test failures are summarized, not streamed; detail is reviewed locally</li>
+        <li>No live Fabric data queries; only 13 pinned documentation/inventory MCP tools, with server-side and hook restrictions</li>
+        <li>Test output is status-only unless a reviewed synthetic task explicitly enables bounded diagnostics</li>
         <li>Workflows needing an exception require a separate reviewed extension</li>
       </ul>
     </div>
@@ -267,6 +269,32 @@
     service coverage under your agreement separately, and use administrator-managed policy where you need non-bypassable enforcement.
     Runtime behavior in a fresh Copilot CLI session should be verified with synthetic files before relying on it.
   </div>
+</section>
+
+<section id="fabric-engineering-use-cases">
+  <h2>Fabric data engineering use cases and delivery impact</h2>
+  <p class="lead">In a target project using the restrictive plugin, agents can author much of a solution but cannot independently deploy, run and validate it end to end.</p>
+  <p>These constraints describe projects consuming the plugin, not this infrastructure-only toolkit repository. Impact describes workflow friction, not a measured productivity percentage. Allowed operations still require normal client permissions.</p>
+  <table>
+    <thead><tr><th scope="col">Engineering activity</th><th scope="col">Access and constraint</th><th scope="col">Practical impact</th></tr></thead>
+    <tbody>
+      <tr><td>Design architecture, ingestion patterns, medallion layers, security and orchestration</td><td>Allowed using requirements and available documentation</td><td>Low</td></tr>
+      <tr><td>Author notebooks, SQL, pipelines, configuration and documentation</td><td>Ordinary project files allowed through supported editing tools; protected control files remain blocked</td><td>Low to moderate</td></tr>
+      <tr><td>Discover workspaces, items, capacities, schemas/namespaces and table names</td><td>Conditional: only the named MCP inventory tools and validated arguments</td><td>Low once connector loading and identity are verified</td></tr>
+      <tr><td>Inspect columns, types, keys, relationships and existing workload definitions</td><td>Blocked through live full-definition/schema tools; approved schema-only project artifacts can be read</td><td>High for integrating existing systems; requires supplied schema artifacts</td></tr>
+      <tr><td>Profile data, inspect samples, check nulls/duplicates or calculate reconciliation counts</td><td>Live queries blocked, including aggregates. Agents may supply unexecuted read-only queries for the user to run and analyze</td><td>High for transformation validation; return non-sensitive findings, never business-data output</td></tr>
+      <tr><td>Create lakehouses, deploy notebooks/pipelines, configure connections or assign permissions</td><td>Direct deployment and mutation tools blocked; separately human-reviewed tasks are a distinct execution path, not a baseline grant</td><td>High for autonomous delivery; user executes deployment scripts</td></tr>
+      <tr><td>Run pipelines, notebooks, refreshes and integration tests</td><td>Live execution tools blocked</td><td>High; execution becomes a human-operated step</td></tr>
+      <tr><td>Diagnose failed Fabric runs using logs, outputs and operation results</td><td>Live operational results blocked</td><td>High during troubleshooting; requires sanitized technical findings</td></tr>
+      <tr><td>Run and diagnose local synthetic tests</td><td>Conditional: human-reviewed task; diagnostics explicitly enabled with synthetic-only attestation and bounded output</td><td>Moderate setup friction, then useful local validation</td></tr>
+      <tr><td>Install dependencies, run arbitrary CLI commands or perform long builds</td><td>Reviewed tasks only; the task runner has a 60-second limit</td><td>Moderate to high depending on tooling and build duration</td></tr>
+      <tr><td>Refactor files, update CI and manage Git/GitHub workflows</td><td>File moves/deletes, protected configuration edits and direct commit/push commands blocked; supported read-only Git inspection allowed</td><td>Moderate; several routine steps require user execution</td></tr>
+      <tr><td>Use Fabric skills and specialist agents</td><td>Conditional: named skills and synchronous bundled-agent delegation; child operations remain independently gated</td><td>Moderate; expertise is available, not additional permissions</td></tr>
+    </tbody>
+  </table>
+  <p><strong>The largest bottleneck is the feedback loop, not code generation.</strong> Agents can deliver architecture, implementation files, synthetic tests, deployment scripts and manual validation queries. Production correctness, performance, permissions and operational readiness remain unverified until authorized live steps are completed.</p>
+  <p>A greenfield solution with documented schemas supports workable assisted engineering. An existing, poorly documented Fabric environment is substantially more constrained. Narrow column-schema inspection and sanitized execution status are potential future improvements, not currently approved capabilities.</p>
+  <div class="note"><strong>Connector verification and metadata limits.</strong> The restricted MCP tool exposure was protocol-tested, but actual Copilot plugin-server discovery and dispatch remain unverified. Inventory responses and service errors are not redacted; use only approved technical metadata and a least-privilege identity. Verify client and child-hook behavior with synthetic calls before relying on enforcement.</div>
 </section>
 
 </main>

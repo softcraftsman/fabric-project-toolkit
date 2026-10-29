@@ -32,10 +32,14 @@ Installing the plugin does not automatically launch a fleet.
 
 Privacy controls complement these agents rather than replacing them. Selecting
 a role does not authorize business-data access or bypass tool restrictions.
-The baseline does not yet approve live Fabric connectors or delegated agent
-execution; workflows needing them require separately reviewed capabilities.
+The baseline approves only the narrow Fabric metadata tools described below,
+not live business-data queries. Synchronous delegation
+to the bundled Fabric agents is supported with the shared safety contract;
+child-hook enforcement must be verified in the target client.
 Profiles inherit the configured model rather than pinning one. Referenced skills
-and MCP servers are separate dependencies, not bundled approval grants.
+and other MCP servers remain separate dependencies, not approval grants. The
+Microsoft Fabric MCP server is registered by this plugin with a pinned package
+and a restricted tool list.
 
 ## What the baseline does
 
@@ -46,27 +50,34 @@ and MCP servers are separate dependencies, not bundled approval grants.
   remain protected against edits.
 - Allows project directory listings, glob discovery and directory searches,
   after checking the search tree for filesystem aliases and special files.
-- Allows read-only local history through exact project-scoped SQL templates,
-  and the exact `git --no-pager status --short` command.
+- Allows read-only local history searches scoped to the current project,
+  and read-only Git status/diff/log commands.
+- Supports missing project directories through a constrained `mkdir` wrapper,
+  Microsoft documentation fetches, and the named Fabric skill allowlist.
+- Exposes 13 reviewed Microsoft Fabric MCP tools: offline documentation and
+  live workspace/item/capacity discovery plus OneLake namespace/table-name
+  listings. Server-side tool restriction and hook argument checks both apply.
 - Requires individual human approval and matching SHA-256 digests only for
   files outside the project root, including before external edits.
-- Runs explicitly reviewed development tasks through a wrapper that returns
-  status rather than raw child-process output.
+- Runs explicitly reviewed development tasks through a wrapper. Synthetic-only
+  test tasks can return bounded diagnostics; other tasks remain status-only.
 - Creates project-local policy and a conservative VS Code profile without
   overwriting existing project configuration or changing authentication.
 - Reports static configuration checks separately from unverified runtime
   protection.
 
-MCP tools, live-data queries, cross-project/cloud history, arbitrary diagnostics, skills,
-delegation, browser tools, and unrestricted shell execution have no baseline
+Other MCP tools, live-data queries, cross-project/cloud history, arbitrary diagnostics,
+unlisted skills/agents, browser tools, and unrestricted shell execution have no baseline
 approval. Metadata, schemas, identifiers, aggregates, and notebook outputs are
-not automatically safe. This baseline does not provide an exception mechanism
-for those categories: withhold them pending a separately reviewed extension.
+not automatically safe. Only the specific metadata operations below are
+approved; other categories need a separately reviewed extension.
 
 ## Requirements
 
 Use Python 3.12 or later, Git, and PowerShell 7 (`pwsh`) on Windows. The plugin uses
-the Python standard library; no dependency installation is needed.
+the Python standard library. The bundled MCP configuration additionally requires
+Node.js 22+ and `npx` on the client's PATH. On first startup, `npx` downloads the
+pinned Microsoft package; updates are not implicitly taken from `latest`.
 Use a Copilot CLI version supporting plugin command hooks and check the
 synthetic protocol and fresh-session behavior after client upgrades.
 
@@ -186,7 +197,7 @@ copilot --plugin-dir "$ToolkitRoot"
 
 ## Shared agent instructions
 
-[AGENTS.md](AGENTS.md) defines project-wide guidance for the bundled Fabric
+[templates/AGENTS.md](templates/AGENTS.md) defines target-project guidance for the bundled Fabric
 roles and other agents, including the default fallback when a data query is
 blocked: respect the denial, do not bypass it, and offer only an explicitly
 unexecuted read-only SQL/DAX template using permitted schema knowledge.
@@ -205,7 +216,9 @@ requests human review rather than overwriting it. Review and commit the file,
 then start a fresh agent session. `init` remains unchanged and does not install
 instructions implicitly.
 
-Root `AGENTS.md` is the project-wide default for clients/agents that load it;
+The toolkit's own root [AGENTS.md](AGENTS.md) permits broader plugin development
+and is never the installer source. The restrictive template is installed as
+root `AGENTS.md` in the target project, the default for clients/agents that load it;
 installing the plugin alone does not install these instructions into a target
 repository. Review nested instructions and custom agent prompts for conflicts,
 and include relevant rules in authorized handoffs to agents that do not inherit
@@ -218,16 +231,32 @@ the project's other instructions.
 
 ## Repository status and current-project history
 
-The exact command `git --no-pager status --short` is allowed through the
-PowerShell tool. Other Git/shell commands still need a reviewed task.
+Git status and full diff/log output are allowed through the PowerShell tool:
+
+```powershell
+git --no-pager status --short
+git --no-pager diff --no-ext-diff --no-textconv
+git --no-pager diff --cached --no-ext-diff --no-textconv
+git --no-pager log -p
+```
+
+Common read-only display flags, revision ranges and project-relative pathspecs
+are supported, not arbitrary options or shell chaining. Git mutations and
+other shell commands still need a reviewed task.
 For repositories with custom Git helpers, prefer
 `git -c core.fsmonitor=false --no-pager status --short` to disable the fsmonitor
 helper for the status operation. Git configuration remains trusted local code.
 
-The `session_store_sql` tool is allowed only with **`source: "local"`** and one
-of these query shapes. Replace `<project-root>` with the exact current project
-root (`cwd`), escaping any apostrophe as `''`. Do not send an unscoped query
-first; the hook will deny it and provide the supported query shapes.
+The `session_store_sql` tool is allowed with **`source: "local"`** for sessions
+in the exact current project directory. There is no plugin row cap, mandatory
+sort order, or fixed projection. Search summaries and transcripts, filter by
+time or session ID, and use aggregates, grouping, wildcard columns, and optional
+ordering/pagination. The history tool itself can impose its own result limits.
+
+Keep the exact `cwd` equality as a top-level `AND` condition. Replace
+`<project-root>` with the current project root, escaping any apostrophe as `''`.
+For alternatives, use `AND (condition OR condition)` so they cannot widen the
+project scope. Examples:
 
 ```sql
 SELECT id, summary, updated_at FROM sessions
@@ -239,17 +268,22 @@ ORDER BY updated_at DESC LIMIT 20
 SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t
 JOIN sessions AS s ON t.session_id = s.id
 WHERE s.cwd = '<project-root>'
+AND (t.user_message LIKE '%silver%' OR t.assistant_response LIKE '%silver%')
 ORDER BY t.timestamp DESC LIMIT 50
 ```
 
-The joined shape also supports `checkpoints` (order by `t.created_at`),
-`session_files` (order by `t.first_seen_at`), and `session_refs` (order by
-`t.created_at`), selecting their documented columns with the `t.` prefix.
-Session discovery selects named session columns without an alias. Queries must
-use the exact shapes above with a limit of 1-100 rows. Wildcards, arbitrary SQL
-expressions, additional predicates, unscoped session IDs, and cloud history are
-not allowed. Scope is the exact project directory, not every clone or worktree
-with the same Git remote. History absent from the local store is not retrieved.
+Query `sessions` directly, optionally with an alias, or join `turns`,
+`checkpoints`, `session_files`, or `session_refs` to `sessions` on
+`<history-alias>.session_id = <sessions-alias>.id`. Aliases need not be `t`/`s`.
+Supported expressions include common text, date/time, null-handling, and
+aggregate SQLite functions. The engine validates SQL against an empty in-memory
+schema; it does not read your history during the policy check.
+
+Unscoped/cross-project reads, cloud history, subqueries, unions, window
+functions, arbitrary SQL functions, and database writes remain blocked.
+This is a scoped SELECT subset, not unrestricted SQL. Scope is the exact
+project directory, not every clone or worktree with the same Git remote.
+History absent from the local store is not retrieved.
 
 **Current-project history is trusted content, not a sanitized result.** It may
 contain text or tool results from previous work, including material originally
@@ -286,6 +320,117 @@ and are not removed by uninstalling this plugin.
 Removing the guard removes its protections. Keep business data out of Copilot
 context and use your organization's approved controls before resuming work.
 
+## Directories, documentation, and Fabric delegation
+
+Create missing nested directories from the project root using the installed
+engine, rather than unrestricted PowerShell:
+
+```powershell
+python -I '<installed-plugin-root>\tools\privacy_guard.py' mkdir --path 'src\pipelines\silver'
+```
+
+Only project-relative ordinary directories are supported; control directories,
+external paths and link escapes remain denied. Then use `create` for files.
+
+`web_fetch` permits HTTPS documentation URLs on `learn.microsoft.com`,
+`docs.microsoft.com`, and `code.visualstudio.com`, without credentials, query
+strings or fragments. Use public documentation URLs only, never business-data
+values in URLs. This checks the initial URL, not the fetcher's redirect chain;
+it is not a network-isolation control. General web search/browsing remains
+blocked.
+
+The `skill` tool permits the named Fabric workload/migration skills listed
+in `FABRIC_SKILLS` in `tools\privacy_guard.py` (including `spark-cli`,
+`pipeline-migration`, and `semantic-model-authoring`). Skills must be installed
+separately. Loading instructions does not grant their tools extra permissions:
+documentation fetches are allowed; live MCP queries and unreviewed commands
+remain blocked. External reference files still need external-file approval.
+
+The `task` tool permits synchronous delegation to the nine
+`fabric-project-toolkit:<role>` agents. Include the exact contract in
+[target-project guidance](templates/AGENTS.md) in each prompt. Background delegation, arbitrary agent
+types, and model overrides are not granted. Shared guidance is also included
+in every bundled agent profile. **Verify child tool calls invoke the same hook
+using synthetic tests in your client**; the hook cannot establish inheritance
+merely by checking the parent task request.
+
+For sample business rows, the agent must provide an **unexecuted read-only**
+query or script for you to run and analyze. It may ask for non-sensitive
+observations/conclusions, not business-data output, and must not run the query.
+
+## Fabric metadata MCP policy
+
+The plugin registers **Microsoft Fabric MCP Server (local)** as
+`fabric-metadata` using `@microsoft/fabric-mcp@1.6.0`. It covers the first useful
+engineering inventory without adding overlapping remote connectors. The
+configuration is in [mcp-config.json](mcp-config.json); installation does not
+edit your personal MCP configuration or authenticate to Fabric.
+
+The server starts with `--read-only`, `--disable-proxy-tools`, and repeated
+`--tool` switches naming only the following tools. The client's `tools` list
+matches those switches. The hook independently rejects unknown actions and
+unreviewed arguments; loading a skill never broadens this list.
+
+| Allowed tools | Scope |
+| --- | --- |
+| `docs_list-item-types`, `docs_platform-api-spec` | Offline public API documentation; no arguments |
+| `docs_item-api-spec`, `docs_item-definitions`, `docs_api-examples` | Offline bundled documentation for an `item-type`, not a live item's definition |
+| `docs_best-practices` | Offline documentation for a bounded topic |
+| `core_list-workspaces` | Accessible workspace inventory; optional role filter and continuation token |
+| `core_list-items` | Item inventory within a workspace UUID; optional type, folder UUID, recursion and continuation token |
+| `core_get-item` | Generic item metadata for workspace/item UUIDs, not contents or definitions |
+| `core_list-capacities`, `core_get-capacity` | Accessible capacity inventory or one capacity UUID |
+| `onelake_list-table-namespaces` | Schema/namespace names for workspace/item UUIDs |
+| `onelake_list-tables` | Table-name inventory for workspace/item UUIDs and a simple `namespace` identifier |
+
+Use the exact hyphenated argument names returned by `tools/list`. UUIDs must
+be nonzero and in dashed form. Friendly-name aliases (`workspace`, `item`,
+`schema`), endpoint/authentication overrides, arbitrary selectors and unknown
+arguments are not accepted. The workspace-specific-endpoint preference may
+only be omitted, null or false. Other MCP server identities remain denied.
+The supported hook identity is `fabric-metadata-<tool>`; an unrecognized client
+alias fails closed rather than authorizing tools by suffix.
+
+**Still blocked:** SQL/DAX/KQL/M execution (including aggregates), row previews,
+value search, full live table/item/model definitions, notebook outputs, file
+listing/download/upload, jobs, refreshes, mutations, permissions, shortcuts,
+security/settings tools, operation results and arbitrary catalog searches.
+This intentionally does **not yet enable column-level schema inspection**.
+OneLake's full table tool returns an unfiltered definition and raw response;
+Fabric IQ schema/report tools can include business literals, filters, custom
+instructions and verified answers. Read-only labels are insufficient approval.
+Warehouse, Eventhouse, Fabric IQ, Power BI Authoring, DataFactory and other
+MCP servers are not registered or approved by this change.
+
+**Metadata is not redacted.** Allowed inventory can include names, descriptions,
+tags, identifiers, endpoints and continuation information; OneLake listings
+also return raw metadata responses. Service errors are not output-filtered.
+Only connect to an environment where those fields are approved technical
+metadata, not business values or secrets. Use a least-privilege identity:
+the local server uses its configured host credentials, which may differ from
+the person using Copilot. Workspace discovery covers the identity's accessible
+workspaces, not a project-specific workspace allowlist. Local hosting does not
+keep tool results out of the selected model.
+
+After updating the plugin, start a fresh CLI session, confirm `fabric-metadata`
+and the privacy hook are loaded, and first try the offline `docs_list-item-types`
+tool. Verify allowed and denied synthetic calls before connecting live
+credentials. Normal client permissions still apply. Preflight checks the
+packaged configuration, not Node/npm availability, active server identity,
+actual client dispatch, or authentication. Older installed AGENTS.md guidance
+requires a reviewed manual merge; the instruction installer will not overwrite it.
+
+The package's actual MCP catalog was inspected: **13 of 62 tools are exposed;
+49 remain unexposed**, and unknown tools default-deny. Protocol checks exercised
+offline documentation and rejection of unexposed download/query/create tools,
+without customer credentials or business queries. Re-review tool contracts and
+output behavior before changing the pinned version.
+
+References: [Microsoft Fabric MCP repository](https://github.com/microsoft/mcp/tree/main/servers/Fabric.Mcp.Server),
+[Core tools](https://github.com/microsoft/mcp/tree/main/tools/Fabric.Mcp.Tools.Core),
+[OneLake tools](https://github.com/microsoft/mcp/tree/main/tools/Fabric.Mcp.Tools.OneLake),
+and [Fabric IQ tool contract](https://learn.microsoft.com/en-us/fabric/iq/connectors/fabric-iq-mcp#available-tools).
+
 ## Reviewed development tasks
 
 A human may add fixed tasks to `.copilot-privacy\policy.json`. For example:
@@ -297,7 +442,9 @@ A human may add fixed tasks to `.copilot-privacy\policy.json`. For example:
   "tasks": {
     "test": {
       "argv": ["python", "-I", "-m", "unittest", "discover", "-s", "tests"],
-      "reviewed": true
+      "reviewed": true,
+      "synthetic_only": true,
+      "output": "diagnostics"
     }
   }
 }
@@ -319,9 +466,13 @@ Replace `<installed-plugin-root>` with the actual installed plugin directory
 on that machine (the directory containing `plugin.json`). For an installed
 plugin, use its cached path, not `$ToolkitRoot`, which is the separate setup
 checkout. When using `--plugin-dir`, use that directory instead.
-The wrapper does not stream test failures or
-other child output into model context. Investigate detailed failures locally,
-then provide a separately reviewed synthetic reproduction.
+For local tests with synthetic fixtures and no live-data credentials, set
+`"synthetic_only": true` and `"output": "diagnostics"` to return captured
+stdout/stderr (including assertions and tracebacks) in the result's `output`
+field. Output is bounded to 1 MiB and execution to 60 seconds. This allows the
+agent to diagnose failed local tests rather than guessing from pass/fail.
+The synthetic-only flag is a human attestation, not a content detector.
+Existing tasks default to `"output": "status"` and keep suppressing output.
 
 **A reviewed task still executes mutable local code with the user's
 permissions.** Capturing output does not prevent filesystem writes, network

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -89,8 +90,8 @@ class PrivacyGuardTests(unittest.TestCase):
 
     def test_unknown_capabilities_and_prefix_spoofing_denied(self):
         for name in (
-            "mcp.read", "web_fetch", "web_search", "get_diagnostics",
-            "task", "skill", "sql", "browser", "bash", "apply_patch",
+            "mcp.read", "web_search", "get_diagnostics",
+            "sql", "browser", "bash", "apply_patch",
             "functions.apply_patch", "functions.mcp.read", "functions.functions.view",
             "future_tool", "get_file_contents",
         ):
@@ -266,6 +267,28 @@ class PrivacyGuardTests(unittest.TestCase):
                     self.assertEqual(self.decision(name, self.history_arguments(query)), {})
                     self.assertEqual(len(db.execute(query).fetchall()), 1)
                     self.assertEqual(db.execute(query).fetchone()[0], "current")
+            db.executemany("INSERT INTO turns VALUES (?, ?, ?, ?)", [
+                ("current", "silver work", "project reply", "2026-10-29")
+                for _ in range(120)
+            ] + [
+                ("other", "silver work", "other reply", "2026-10-29")
+                for _ in range(130)
+            ])
+            flexible = (
+                "SELECT h.* FROM turns h JOIN sessions s ON h.session_id=s.id "
+                f"WHERE s.cwd='{cwd}' AND (h.user_message LIKE '%silver%' "
+                "OR h.assistant_response LIKE '%silver%') ORDER BY h.timestamp ASC"
+            )
+            self.assertEqual(self.decision("session_store_sql", self.history_arguments(flexible)), {})
+            rows = db.execute(flexible).fetchall()
+            self.assertEqual(len(rows), 120)
+            self.assertEqual({row[0] for row in rows}, {"current"})
+            aggregate = (
+                "SELECT count(*) FROM turns h JOIN sessions s ON h.session_id=s.id "
+                f"WHERE h.user_message LIKE '%silver%' AND s.cwd='{cwd}'"
+            )
+            self.assertEqual(self.decision("session_store_sql", self.history_arguments(aggregate)), {})
+            self.assertEqual(db.execute(aggregate).fetchone()[0], 120)
         for table, order in (
             ("checkpoints", "created_at"), ("session_files", "first_seen_at"),
             ("session_refs", "created_at"),
@@ -287,11 +310,7 @@ class PrivacyGuardTests(unittest.TestCase):
             query.replace(f"cwd='{cwd}'", f"cwd='{cwd}' OR 1=1"),
             query + " UNION SELECT id FROM sessions",
             query + "; SELECT id FROM sessions",
-            query.replace("SELECT id", "SELECT *"),
             query.replace("SELECT id", "SELECT (SELECT summary FROM sessions)"),
-            query.replace("LIMIT 10", "LIMIT 101"),
-            query.replace("LIMIT 10", "LIMIT 0"),
-            query.replace("LIMIT 10", "LIMIT -1"),
             query.replace(f"'{cwd}'", "'x' /*"),
             "ATTACH DATABASE 'other' AS other",
             "SELECT load_extension('unsafe')",
@@ -312,7 +331,37 @@ class PrivacyGuardTests(unittest.TestCase):
             "HISTORY_SCOPE_REQUIRED",
         )
 
-    def test_only_exact_read_only_git_status_is_allowed(self):
+    def test_history_search_filters_aggregates_and_unlimited_project_rows(self):
+        cwd = str(self.root).replace("'", "''")
+        allowed = (
+            f"SELECT * FROM sessions WHERE cwd='{cwd}'",
+            f"SELECT id FROM sessions WHERE cwd='{cwd}' LIMIT 500",
+            f"SELECT COUNT(*) FROM sessions WHERE summary LIKE '%silver%' AND cwd='{cwd}'",
+            f"SELECT id, summary FROM sessions AS s WHERE s.cwd='{cwd}' "
+            "AND (summary LIKE '%silver%' OR summary LIKE '%bronze%') "
+            "AND updated_at >= datetime('now', '-7 days') ORDER BY created_at ASC",
+            "SELECT h.session_id, h.user_message FROM turns h "
+            f"INNER JOIN sessions s ON h.session_id=s.id WHERE s.cwd='{cwd}' "
+            "AND h.user_message LIKE '%silver%' ORDER BY h.timestamp DESC LIMIT 200 OFFSET 10",
+            "SELECT s.branch, COUNT(*) AS hits FROM turns AS t "
+            f"JOIN sessions AS s ON t.session_id=s.id WHERE s.cwd='{cwd}' "
+            "GROUP BY s.branch HAVING count(*) > 1 ORDER BY hits DESC",
+        )
+        for query in allowed:
+            with self.subTest(query=query):
+                self.assertEqual(self.decision("session_store_sql", self.history_arguments(query)), {})
+        for query in (
+            f"SELECT * FROM sessions WHERE cwd='{cwd}' AND 1=1 OR 1=1",
+            f"SELECT * FROM sessions WHERE (cwd='{cwd}' OR 1=1)",
+            f"SELECT readfile('other') FROM sessions WHERE cwd='{cwd}'",
+            f"SELECT * FROM sessions WHERE cwd='{cwd}' UNION SELECT * FROM sessions",
+            f"SELECT * FROM sessions WHERE cwd='{cwd}' ORDER BY (SELECT summary FROM sessions)",
+            f"SELECT * FROM sessions WHERE cwd='{cwd}' COLLATE NOCASE",
+            f"SELECT row_number() OVER () FROM sessions WHERE cwd='{cwd}'",
+        ):
+            self.denied("session_store_sql", self.history_arguments(query))
+
+    def test_exact_git_status_and_read_only_inspection_are_allowed(self):
         for name in ("powershell", "functions.powershell"):
             for command in (
                 "git --no-pager status --short",
@@ -321,7 +370,241 @@ class PrivacyGuardTests(unittest.TestCase):
                 self.assertEqual(self.decision(name, {"command": command}), {})
                 self.denied(name, {"command": command + "; Get-Content secret"})
                 self.denied(name, {"command": command, "mode": "async"})
-        self.denied("powershell", {"command": "git --no-pager diff"})
+        self.assertEqual(self.decision("powershell", {"command": "git --no-pager diff"}), {})
+
+    def test_project_directory_wrapper_creates_nested_paths_without_external_or_control_access(self):
+        relative = "src\\new module\\nested"
+        command = guard.directory_command(relative)
+        self.assertEqual(self.decision("powershell", {"command": command}), {})
+        with mock.patch.object(guard.Path, "cwd", return_value=self.root):
+            self.assertEqual(guard.make_directory(relative)["status"], "created")
+        self.assertTrue((self.root / "src" / "new module" / "nested").is_dir())
+        self.assertEqual(self.decision("create", {
+            "path": relative + "\\example.py", "file_text": "answer = 42\n",
+        }), {})
+        for path in ("..\\outside", ".github\\hooks", "src\\agents\\nested", "AGENTS.md"):
+            command = (
+                "python -I '" + str(Path(guard.__file__).resolve()).replace("'", "''")
+                + "' mkdir --path '" + path + "'"
+            )
+            self.denied("powershell", {"command": command})
+        self.denied("powershell", {"command": guard.directory_command("valid") + "; echo bypass"})
+        real_lstat = Path.lstat
+        linked = self.root / "junction"
+        linked.mkdir()
+
+        def reparse(path, *args, **kwargs):
+            if path == linked:
+                return mock.Mock(
+                    st_mode=stat.S_IFDIR, st_file_attributes=0x400,
+                )
+            return real_lstat(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "lstat", reparse):
+            self.denied("powershell", {"command": guard.directory_command("junction\\new")})
+        self.assertFalse((linked / "new").exists())
+
+    def test_git_diff_and_log_allow_full_output_and_deny_execution_options(self):
+        for command in (
+            "git --no-pager diff",
+            "git --no-pager diff --cached --no-ext-diff --no-textconv",
+            "git --no-pager diff HEAD~2 HEAD -- src\\example.py",
+            "git --no-pager diff -- 'src\\an example (synthetic).py'",
+            "git --no-pager log --all --graph --oneline -n100",
+            "git --no-pager log -p --full-history",
+        ):
+            self.assertEqual(self.decision("powershell", {"command": command}), {})
+        for command in (
+            "git --no-pager diff --output=outside",
+            "git --no-pager diff --ext-diff",
+            "git --no-pager log --format=%x00",
+            "git --no-pager log; Get-Content secret",
+            "git --no-pager diff $(Get-Content secret)",
+            "git --no-pager diff -- ..\\outside",
+            "git --no-pager diff -- (whoami)",
+            "git --no-pager log -- @(whoami)",
+            "git --no-pager diff -- @example",
+            "git --no-pager diff -- # example",
+            "git -C .. --no-pager log",
+            "git --no-pager diff --no-index outside other",
+        ):
+            self.denied("powershell", {"command": command})
+
+    @unittest.skipUnless(shutil.which("git") and shutil.which("pwsh"), "Git and PowerShell required")
+    def test_git_inspection_returns_actual_synthetic_diff_and_log_patches(self):
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        environment.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", *args], cwd=self.root, env=environment,
+                capture_output=True, check=True, timeout=15,
+            )
+
+        git("init", "--quiet")
+        git("add", "sample.py")
+        git("-c", "user.name=Synthetic Fixture", "-c", "user.email=synthetic@example.invalid",
+            "commit", "--quiet", "-m", "Synthetic fixture")
+        self.file.write_text("answer = 43\n", encoding="utf-8")
+        for command, expected in (
+            ("git --no-pager diff --no-ext-diff --no-textconv", b"+answer = 43"),
+            ("git --no-pager log -p --no-ext-diff --no-textconv", b"+answer = 42"),
+        ):
+            self.assertEqual(self.decision("powershell", {"command": command}), {})
+            result = subprocess.run(
+                ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command],
+                cwd=self.root, env=environment, capture_output=True, timeout=15,
+            )
+            self.assertEqual(result.returncode, 0)
+            self.assertIn(expected, result.stdout)
+
+    def test_microsoft_documentation_and_fabric_skill_loading_are_scoped(self):
+        for url in (
+            "https://learn.microsoft.com/en-us/fabric/data-engineering/overview",
+            "https://code.visualstudio.com/docs/python/testing",
+            "https://docs.microsoft.com/en-us/azure/",
+        ):
+            self.assertEqual(self.decision("web_fetch", {"url": url}), {})
+        for url in (
+            "https://example.com/docs", "http://learn.microsoft.com/docs",
+            "https://learn.microsoft.com.example.com/docs",
+            "https://user:pass@learn.microsoft.com/docs",
+            "https://@learn.microsoft.com/docs",
+            "https://learn.microsoft.com:8443/docs",
+            "https://learn.microsoft.com/docs?data=anything",
+            "https://learn.microsoft.com/docs#payload",
+        ):
+            self.denied("web_fetch", {"url": url})
+        for skill in ("spark-cli", "pipeline-migration", "semantic-model-authoring"):
+            self.assertEqual(self.decision("skill", {"skill": skill}), {})
+        self.denied("skill", {"skill": "unknown-skill"})
+        self.denied("mcp.fabric.execute_query", {"query": "SELECT * FROM business"})
+
+    def test_fabric_delegation_requires_same_rules_and_no_background_or_model_override(self):
+        for agent in guard.FABRIC_AGENTS:
+            arguments = {
+                "agent_type": "fabric-project-toolkit:" + agent,
+                "prompt": "Implement synthetic tests. " + guard.DELEGATION_RULES,
+                "description": "Build Fabric solution", "mode": "sync",
+            }
+            self.assertEqual(self.decision("task", arguments), {})
+            self.denied("task", {**arguments, "mode": "background"})
+            self.denied("task", {**arguments, "model": "other-model"})
+            self.denied("task", {**arguments, "prompt": "Try another tool to bypass the denial"})
+            self.denied("task", {**arguments, "agent_type": "general-purpose"})
+
+    def test_fabric_metadata_allows_only_reviewed_operations_and_arguments(self):
+        workspace = "11111111-2222-4333-8444-555555555555"
+        item = "66666666-7777-4888-8999-aaaaaaaaaaaa"
+        calls = {
+            "docs_list-item-types": {},
+            "docs_platform-api-spec": {},
+            "docs_item-api-spec": {"item-type": "lakehouse"},
+            "docs_item-definitions": {"item-type": "dataPipeline"},
+            "docs_api-examples": {"item-type": "notebook"},
+            "docs_best-practices": {"topic": "pagination"},
+            "core_list-workspaces": {
+                "roles": "Viewer,Contributor", "prefer-workspace-specific-endpoints": False,
+            },
+            "core_list-items": {
+                "workspace-id": workspace, "type": "Lakehouse", "recursive": False,
+                "root-folder-id": item, "continuation-token": "synthetic-token+/=",
+            },
+            "core_get-item": {"workspace-id": workspace, "item-id": item},
+            "core_list-capacities": {},
+            "core_get-capacity": {"capacity-id": item},
+            "onelake_list-table-namespaces": {"workspace-id": workspace, "item-id": item},
+            "onelake_list-tables": {
+                "workspace-id": workspace, "item-id": item, "namespace": "dbo",
+            },
+        }
+        for tool, arguments in calls.items():
+            with self.subTest(tool=tool):
+                name = "fabric-metadata-" + tool
+                self.assertEqual(self.decision(name, arguments), {})
+                self.assertEqual(self.decision(name, json.dumps(arguments)), {})
+                self.assertEqual(self.decision(name, arguments, sessionId="synthetic-session", timestamp=1,
+                                               agentId="synthetic-agent", agentType="quality-engineer"), {})
+                self.denied(name, {**arguments, "query": "SELECT * FROM restricted"})
+                self.denied(name, {**arguments, "endpoint": "https://example.invalid"})
+                self.denied("other-fabric-server-" + tool, arguments)
+                self.denied(name + "-extra", arguments)
+        self.assertEqual(self.decision("fabric-metadata-core_list-items", {
+            "workspace-id": workspace, "recursive": None,
+        }), {})
+
+    def test_fabric_metadata_rejects_aliases_invalid_ids_paths_and_schema_widening(self):
+        workspace = "11111111-2222-4333-8444-555555555555"
+        item = "66666666-7777-4888-8999-aaaaaaaaaaaa"
+        for value in ("workspace name", "../outside", "00000000-0000-0000-0000-000000000000",
+                      workspace + "/items", workspace.replace("-", ""), None, True, 1, {}):
+            self.denied("fabric-metadata-core_get-item", {"workspace-id": value, "item-id": item})
+        for arguments in (
+            {"workspace": workspace, "item": item, "schema": "dbo"},
+            {"workspace-id": workspace, "item-id": item},
+            {"workspace-id": workspace, "item-id": item, "namespace": "../other"},
+            {"workspace-id": workspace, "item-id": item, "namespace": "dbo?query=rows"},
+            {"workspace-id": workspace, "item-id": item, "namespace": "dbo", "table": "example"},
+            {"workspace-id": workspace, "item-id": item, "namespace": "dbo", "includeData": True},
+        ):
+            self.denied("fabric-metadata-onelake_list-tables", arguments)
+        for arguments in ({"roles": "Owner"}, {"roles": "Viewer,"},
+                          {"prefer-workspace-specific-endpoints": True},
+                          {"prefer-workspace-specific-endpoints": 0},
+                          {"continuation-token": "token\nheader"}, {"continuation-token": "x" * 8193}):
+            self.denied("fabric-metadata-core_list-workspaces", arguments)
+        self.denied("fabric-metadata-core_list-items", {"workspace-id": workspace, "recursive": "false"})
+        self.denied("fabric-metadata-docs_item-api-spec", {"item-type": "..\\policy.json"})
+        self.denied("fabric-metadata-docs_best-practices", {"topic": "https://example.invalid"})
+        self.denied("fabric-metadata-docs_list-item-types", {"authentication": "override"})
+        self.denied("fabric-metadata-docs_list-item-types", {}, cwd=str(self.root / "missing"))
+
+    def test_fabric_metadata_denies_data_execution_definitions_permissions_and_mutations(self):
+        for tool in (
+            "core_create-item", "core_delete-item", "core_update-item", "core_create-workspace",
+            "core_get-workspace", "core_search-catalog", "core_get-operation-result",
+            "core_get-operation-state", "core_assign-workspace-to-capacity",
+            "datafactory_list-pipelines", "datafactory_get-pipeline", "datafactory_run-pipeline",
+            "datafactory_execute-query", "datafactory_list-dataflows",
+            "onelake_get-table", "onelake_get-table-config", "onelake_get-table-namespace",
+            "onelake_download-file", "onelake_list-files", "onelake_upload-file",
+            "onelake_get-data-access-role", "onelake_list-data-access-roles",
+            "onelake_create-or-update-data-access-role", "onelake_list-shortcuts",
+            "onelake_get-settings", "onelake_list-items-dfs", "onelake_delete-directory",
+            "ExecuteQuery", "ValueSearch", "GetSemanticModelSchema", "GetReportMetadata",
+            "execute_sql", "execute_kql", "future_metadata_tool",
+        ):
+            with self.subTest(tool=tool):
+                decision = self.denied("fabric-metadata-" + tool, {"payload": SYNTHETIC})
+                self.assertNotIn(SYNTHETIC, json.dumps(decision))
+        for name in (
+            "FabricIQ-ExecuteQuery", "FabricIQ-GetSemanticModelSchema",
+            "fabric-list_items", "fabric-metadata_list_items",
+            "fabric-metadata", "mcp__fabric-metadata__core_list-workspaces",
+            "functions.fabric-metadata-core_list-workspaces",
+        ):
+            self.denied(name, {})
+
+    def test_synthetic_test_diagnostics_return_full_bounded_output_only_when_attested(self):
+        self.add_task("raise AssertionError('synthetic assertion: expected 42, got 43')")
+        self.policy["tasks"]["test"].update(output="diagnostics", synthetic_only=True)
+        self.save()
+        result = self.cli("run", "--task", "test")
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["status"], "failure")
+        self.assertIn("synthetic assertion: expected 42, got 43", payload["output"])
+        self.assertIn("Traceback", payload["output"])
+        self.policy["tasks"]["test"]["argv"] = [
+            sys.executable, "-I", "-c", "print('synthetic test passed')",
+        ]
+        self.save()
+        payload = json.loads(self.cli("run", "--task", "test").stdout)
+        self.assertEqual(payload["status"], "success")
+        self.assertIn("synthetic test passed", payload["output"])
+        self.policy["tasks"]["test"]["synthetic_only"] = False
+        self.save()
+        rejected = self.cli("run", "--task", "test")
+        self.assertEqual(json.loads(rejected.stdout)["reason"], "SYNTHETIC_ATTESTATION_REQUIRED")
 
     def test_schema_validation_unknown_fields_types_and_duplicate_paths(self):
         entry = {"path": "sample.py", "category": "source", "sha256": "a" * 64}
@@ -356,6 +639,7 @@ class PrivacyGuardTests(unittest.TestCase):
             ".copilot-privacy\\policy.json", ".github\\hooks\\config.json",
             ".vscode\\settings.json", "AGENTS.md", "hooks.json", "plugin.json",
             "tools\\privacy_guard.py", "skills\\example.md",
+            "mcp-config.json", ".mcp.json",
         ):
             with self.subTest(path_kind="invalid"):
                 with self.assertRaises((guard.PolicyError, OSError)):

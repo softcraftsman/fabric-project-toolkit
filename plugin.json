@@ -3,5 +3,6 @@
   "version": "1.1.0",
   "description": "Microsoft Fabric solution-building agents with classified-file privacy guardrails for native Windows Copilot CLI and advisory-only VS Code setup.",
   "agents": "agents/",
-  "hooks": "hooks/hooks.json"
+  "hooks": "hooks/hooks.json",
+  "mcpServers": "mcp-config.json"
 }
