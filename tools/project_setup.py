@@ -26,6 +26,27 @@ HOOK_ARGUMENTS = [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-Command",
     """try { $ErrorActionPreference = 'Stop'; & (Join-Path $env:COPILOT_PLUGIN_ROOT 'hooks\\Invoke-PrivacyGuard.ps1') } catch { [Console]::Out.WriteLine('{"permissionDecision":"deny","permissionDecisionReason":"CLI_GUARD_FAILURE"}'); exit 0 }""",
 ]
+FABRIC_MCP_TOOLS = (
+    "docs_list-item-types", "docs_item-api-spec", "docs_platform-api-spec",
+    "docs_item-definitions", "docs_best-practices", "docs_api-examples",
+    "core_list-workspaces", "core_list-items", "core_get-item",
+    "core_list-capacities", "core_get-capacity",
+    "onelake_list-table-namespaces", "onelake_list-tables",
+)
+
+
+def fabric_mcp_servers():
+    return {"fabric-metadata": {
+        "type": "stdio", "command": "npx",
+        "args": [
+            "-y", "@microsoft/fabric-mcp@1.6.0", "server", "start",
+            "--read-only", "--disable-proxy-tools",
+            *(argument for tool in FABRIC_MCP_TOOLS for argument in ("--tool", tool)),
+        ],
+        "tools": list(FABRIC_MCP_TOOLS),
+    }}
+
+
 GUIDANCE = """VS Code: ADVISORY / NOT TOOL-ENFORCED
 Create a new empty profile (Profiles: Create Profile), open its settings with
 Preferences: Open Profile Settings (JSON), paste the contents of
@@ -53,16 +74,46 @@ The policy root is the exact absolute hook cwd; no parent-directory lookup.
 Hooks cannot control prompts, attachments, automatic context, or other clients.
 Project directory listings, glob discovery and directory searches are allowed;
 filesystem aliases, special files and external directory scopes remain blocked.
-git --no-pager status --short is allowed; other shell commands need review.
+git --no-pager status --short and read-only diff/log are allowed with supported
+arguments; prefer --no-ext-diff --no-textconv for diffs. Git content and helpers
+are trusted local code, not sanitized. Other shell commands need review.
+Create missing nested project directories with the installed engine's exact:
+python -I '<installed-plugin-root>\\tools\\privacy_guard.py' mkdir --path 'src\\new'
+External paths, control paths and links remain denied.
+web_fetch permits public HTTPS documentation on learn.microsoft.com,
+docs.microsoft.com and code.visualstudio.com without credentials/query/fragment.
+This checks the initial URL, not redirects. Never put business values in URLs.
+Allowlisted Fabric skills may be loaded; their tools remain independently gated.
+External skill reference files still need individual approval.
+The plugin bundles the pinned Microsoft Fabric MCP server as fabric-metadata.
+Only named offline documentation and live workspace/item/capacity discovery
+and OneLake namespace/table-name listing are exposed. Exact argument checks
+apply independently of skill/agent identity. Use UUIDs, not friendly-name aliases.
+Queries, values, full definitions, file reads, permissions and mutations remain
+blocked. Metadata responses (including descriptions/tags) and errors are NOT
+redacted: use a curated technical-metadata environment and least-privilege
+identity. Do not connect where those fields contain business values or secrets.
+No live connection is established by setup/preflight; runtime remains unverified.
+Reviewed local test tasks may return bounded stdout/stderr diagnostics with
+output=diagnostics and synthetic_only=true. Review fixtures/imports/side effects;
+no business data or live-data credentials. Other tasks default to status-only.
+Delegate synchronously only to fabric-project-toolkit:<role> with the exact
+AGENTS.md contract. Verify child-hook enforcement with synthetic client tests.
+For sample business rows, offer only an unexecuted read-only query/script for
+the user to run and analyze; never request a copy of business-data output.
 For session_store_sql use source=local and the exact current project cwd:
 SELECT id, summary, updated_at FROM sessions WHERE cwd='<project-root>'
 ORDER BY updated_at DESC LIMIT 20
 SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t
 JOIN sessions AS s ON t.session_id=s.id WHERE s.cwd='<project-root>'
 ORDER BY t.timestamp DESC LIMIT 50
-Replace the placeholder and escape SQL apostrophes as ''. Only these scoped
-query shapes (and documented checkpoint/file/ref joins) with LIMIT 1-100 are
-allowed. History can contain old business data; scope is not content redaction.
+Replace the placeholder and escape SQL apostrophes as ''. These are examples,
+not fixed templates: filters, aggregates, wildcard columns and optional sort/
+pagination are allowed, with no plugin row cap. Keep the exact project cwd
+equality as a top-level AND condition; put OR filters in parentheses after AND.
+Local sessions and checkpoint/file/ref joins are supported; unscoped reads,
+subqueries, unions and writes are denied. History can contain old business
+data; scope is not content redaction.
 CLI hook timeouts fail open. Static checks do not prove installation,
 activation, hook dispatch, client compatibility, or personal/managed settings.
 No setup command installs plugins, changes authentication, or edits personal
@@ -133,7 +184,7 @@ def install_instructions(project):
     if not validate_project(project):
         return report(["PROJECT_INVALID"], 0)
     target = project / "AGENTS.md"
-    template = (PLUGIN_ROOT / "AGENTS.md").read_bytes()
+    template = (PLUGIN_ROOT / "templates" / "AGENTS.md").read_bytes()
     start = b"<!-- fabric-project-toolkit:guidance:start -->"
     end = b"<!-- fabric-project-toolkit:guidance:end -->"
     if template.count(start) != 1 or template.count(end) != 1:
@@ -180,7 +231,9 @@ def check_wiring(plugin_root):
             or manifest.get("hooks") != "hooks/hooks.json"
             or manifest.get("agents") != "agents/"
             or "$schema" in manifest
-            or any(key in manifest for key in ("skills", "mcpServers", "lspServers", "extensions"))
+            or any(key in manifest for key in ("skills", "lspServers", "extensions"))
+            or manifest.get("mcpServers") != "mcp-config.json"
+            or load_json(plugin_root / "mcp-config.json") != {"mcpServers": fabric_mcp_servers()}
             or hooks != expected
             or type(hooks.get("version")) is not int
         ):

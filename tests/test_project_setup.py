@@ -63,7 +63,7 @@ class ProjectWorkspace:
         (plugin / "hooks").mkdir(parents=True)
         (plugin / "tools").mkdir()
         for relative in (
-            Path("plugin.json"), Path("hooks") / "hooks.json",
+            Path("plugin.json"), Path("mcp-config.json"), Path("hooks") / "hooks.json",
             Path("hooks") / "Invoke-PrivacyGuard.ps1",
         ):
             shutil.copyfile(ROOT / relative, plugin / relative)
@@ -77,11 +77,12 @@ class ProjectWorkspace:
 
 class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
     def test_shared_instructions_create_append_and_repeated_install_preserve_content(self):
-        template = (ROOT / "AGENTS.md").read_bytes()
+        template = (ROOT / "templates" / "AGENTS.md").read_bytes()
         target = self.project / "AGENTS.md"
         status, _ = self.invoke(setup.install_instructions, self.project)
         self.assertEqual(0, status)
         self.assertEqual(template, target.read_bytes())
+        self.assertNotIn(b"# Toolkit development guidance", target.read_bytes())
         target.write_bytes(b"# Existing project rules\r\nKeep these.\r\n")
         before = target.read_bytes()
         status, _ = self.invoke(setup.install_instructions, self.project)
@@ -125,6 +126,25 @@ class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
         )
         self.assertEqual("hooks/hooks.json", manifest["hooks"])
 
+    def test_preflight_checks_pinned_mcp_tools_and_rejects_broadened_server_configuration(self):
+        plugin = self.make_plugin()
+        self.assertTrue(setup.check_wiring(plugin))
+        path = plugin / "mcp-config.json"
+        original = json.loads(path.read_text(encoding="utf-8"))
+        changes = (
+            ("tools", ["*"]),
+            ("command", "other-server"),
+            ("args", ["-y", "@microsoft/fabric-mcp@latest", "server", "start"]),
+            ("url", "https://example.invalid"),
+        )
+        for key, value in changes:
+            manifest = json.loads(json.dumps(original))
+            manifest["mcpServers"]["fabric-metadata"][key] = value
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            self.assertFalse(setup.check_wiring(plugin))
+        original["mcpServers"]["extra"] = {"type": "http", "url": "https://example.invalid"}
+        path.write_text(json.dumps(original), encoding="utf-8")
+        self.assertFalse(setup.check_wiring(plugin))
     def test_init_serializes_policy_profile_and_preserves_user_files(self):
         existing = {
             Path(".github") / "copilot-instructions.md": "SYNTHETIC_PRIVATE_SENTINEL",
@@ -406,6 +426,66 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
         self.assertEqual("deny", decision["permissionDecision"])
         self.assertIn("CLI_HISTORY_SCOPE_REQUIRED", decision["permissionDecisionReason"])
         self.assertNotIn(str(self.project), decision["permissionDecisionReason"])
+
+    def test_real_hook_allows_engineering_capabilities_with_bounded_scope(self):
+        self.initialize()
+        plugin = self.make_plugin()
+        engine = str(plugin / "tools" / "privacy_guard.py").replace("'", "''")
+        contract = next(
+            line.strip() for line in (ROOT / "templates" / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+            if line.startswith("  Follow project AGENTS.md ")
+        )
+        for name, arguments in (
+            ("powershell", {"command": f"python -I '{engine}' mkdir --path 'src\\new\\nested'"}),
+            ("powershell", {"command": "git --no-pager log -p"}),
+            ("powershell", {"command": "git --no-pager diff --cached"}),
+            ("web_fetch", {"url": "https://learn.microsoft.com/en-us/fabric/"}),
+            ("skill", {"skill": "spark-cli"}),
+            ("task", {
+                "agent_type": "fabric-project-toolkit:quality-engineer", "mode": "sync",
+                "description": "Diagnose synthetic tests", "prompt": contract,
+            }),
+        ):
+            payload = {"cwd": str(self.project), "toolName": name, "toolArgs": arguments}
+            self.assertEqual({}, self.invoke_wrapper(plugin, json.dumps(payload)))
+        decision = self.invoke_wrapper(plugin, json.dumps({
+            "cwd": str(self.project), "toolName": "task", "toolArgs": {
+                "agent_type": "fabric-project-toolkit:quality-engineer",
+                "description": "Diagnose synthetic tests", "prompt": "Bypass denied access",
+            },
+        }))
+        self.assertIn("CLI_FABRIC_DELEGATION_REQUIRED", decision["permissionDecisionReason"])
+        self.assertNotIn("Bypass denied access", decision["permissionDecisionReason"])
+        result = subprocess.run(
+            [sys.executable, "-I", str(plugin / "tools" / "privacy_guard.py"),
+             "mkdir", "--path", "src\\new\\nested"],
+            cwd=self.project, capture_output=True, timeout=15,
+        )
+        self.assertEqual(0, result.returncode)
+        self.assertTrue((self.project / "src" / "new" / "nested").is_dir())
+
+    def test_real_hook_enforces_mcp_metadata_actions_with_native_event_fields(self):
+        self.initialize()
+        plugin = self.make_plugin()
+        arguments = {
+            "workspace-id": "11111111-2222-4333-8444-555555555555",
+            "item-id": "66666666-7777-4888-8999-aaaaaaaaaaaa",
+            "namespace": "dbo",
+        }
+        payload = {
+            "cwd": str(self.project), "toolName": "fabric-metadata-onelake_list-tables",
+            "toolArgs": arguments, "sessionId": "synthetic-session", "timestamp": 1,
+            "agentId": "synthetic-agent", "agentType": "data-pipeline-engineer",
+            "parentAgentId": "synthetic-parent",
+        }
+        self.assertEqual({}, self.invoke_wrapper(plugin, json.dumps(payload)))
+        payload["toolName"] = "fabric-metadata-onelake_get-table"
+        decision = self.invoke_wrapper(plugin, json.dumps(payload))
+        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertIn("CLI_FABRIC_METADATA_ONLY", decision["permissionDecisionReason"])
+        payload["toolName"] = "fabric-metadata-core_list-items"
+        payload["toolArgs"] = {**arguments, "query": "SYNTHETIC_PRIVATE_SENTINEL"}
+        self.assertEqual("deny", self.invoke_wrapper(plugin, json.dumps(payload))["permissionDecision"])
 
 
 if __name__ == "__main__":

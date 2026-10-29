@@ -52,9 +52,9 @@ project, approved external files, prompts, and retrieved history.
 | Edit an existing ordinary project file using `edit` | Allowed | No per-file registration or digest; strict edit arguments. |
 | Replace an existing ordinary project file using `create` | Allowed | Same project-root trust. |
 | Create a new project file | Conditional | Its parent directory must already exist and pass path checks. |
-| Create a file under a missing parent directory | Blocked | No directory-creation capability is provided by this rule. |
+| Create missing project directories, then files within them | Conditional | Use the installed engine's exact `mkdir --path '<relative-directory>'` wrapper; no external/control paths or links. File creation still requires the parent to exist. |
 | Edit `.copilot-privacy`, `.copilot`, `.github`, `.vscode`, `.git`, `hooks`, `agents`, or `skills` paths | Blocked | Protected component names apply at any depth, case-insensitively. |
-| Edit `AGENTS.md`, `copilot-instructions.md`, `plugin.json`, `hooks.json`, or `privacy_guard.py` | Blocked | Protected file names apply at any depth, case-insensitively. |
+| Edit `AGENTS.md`, `copilot-instructions.md`, `plugin.json`, `hooks.json`, `privacy_guard.py`, `mcp-config.json`, or `.mcp.json` | Blocked | Protected file names apply at any depth, case-insensitively. |
 | Edit the installed plugin package | Blocked | Plugin implementation is not an ordinary editable target. |
 | Have the agent approve its own files or widen policy | Blocked | No ordinary agent approval command or policy-edit grant. |
 | Delete, rename, or move files through a general-purpose tool | Blocked | No such tool is allowlisted; `edit` does not accept a move argument. Reviewed tasks can have separate side effects. |
@@ -84,24 +84,25 @@ project, approved external files, prompts, and retrieved history.
 
 | Use case | Decision | Conditions and limits |
 | --- | --- | --- |
-| Discover sessions for the exact current project directory | Conditional | `session_store_sql`, explicit `source: "local"`, and the session query shape below. |
+| Discover/search sessions for the exact current project directory | Allowed | Use `source: "local"` and the exact project `cwd` equality as a top-level AND condition. No individual approval. |
 | Read current-project prompts and assistant responses | Conditional | Supported `turns` join through `sessions`, filtered by exact project `cwd`. |
 | Read current-project checkpoints | Conditional | Supported `checkpoints` join; descending `t.created_at`. |
 | Read current-project changed-file metadata | Conditional | Supported `session_files` join; descending `t.first_seen_at`. |
 | Read current-project PR, issue, or commit references | Conditional | Supported `session_refs` join; descending `t.created_at`. |
-| Retrieve 1-100 rows with named supported columns | Conditional | Required limit and descending order; documented query shapes only. |
+| Search transcripts/summaries with text, time, or session-ID filters | Allowed | Keep project scope; group OR alternatives in parentheses after AND. |
+| Retrieve wildcard columns, aggregates, grouped results, or more than 100 rows | Allowed | No plugin row cap or mandatory ordering; optional LIMIT/OFFSET and common SQLite functions. The tool can impose its own result limits. |
 | Retrieve another project's sessions | Blocked | Exact project-directory comparison, not a Git-remote or path-prefix match. |
 | Retrieve a different clone, worktree, or subdirectory session as the same project | Blocked | It has a different `cwd`, even if the repository remote matches. |
 | Retrieve history by session ID without the project join/filter | Blocked | A known ID alone does not establish project scope. |
 | Query without `source`, or with `source: "cloud"` | Blocked | Explicit local-only retrieval is required. |
 | Query raw events, tool requests, attachments, usage, or arbitrary tables | Blocked | Only sessions and the four named joined tables are supported. |
-| Use `SELECT *`, arbitrary expressions, extra predicates, unions, subqueries, or multiple statements | Blocked | Fixed SQL grammar; no generic SQL authorization. A single trailing semicolon is accepted. |
-| Write to the history database or load SQL extensions | Blocked | Read-only supported query shapes only. |
+| Use unions, subqueries, window functions, arbitrary functions, or multiple statements | Blocked | Scoped SELECT subset with syntax/function validation. A single trailing semicolon is accepted. |
+| Write to the history database or load SQL extensions | Blocked | Read-only history searches only. |
 | Retrieve history that exists only in the cloud | Blocked | This path does not fetch it. |
 | Read old business data already present in current-project history | Allowed | **Residual risk:** project filtering is not transcript scanning or redaction. |
 | Resume a session or receive automatic history/context outside a tool call | Not covered | The tool-query gate does not screen automatic context ingestion. |
 
-Supported query shapes, using `source: "local"`:
+Example queries, using `source: "local"` (not fixed templates):
 
 ```sql
 SELECT id, summary, updated_at FROM sessions
@@ -113,15 +114,17 @@ ORDER BY updated_at DESC LIMIT 20
 SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t
 JOIN sessions AS s ON t.session_id = s.id
 WHERE s.cwd = '<exact-project-root>'
+AND (t.user_message LIKE '%silver%' OR t.assistant_response LIKE '%silver%')
 ORDER BY t.timestamp DESC LIMIT 50
 ```
 
 Substitute the actual root and escape SQL apostrophes as `''`. The allowed
 session columns are `id`, `summary`, `cwd`, `repository`, `branch`, `created_at`,
-and `updated_at`. Joined queries may select `s.id`, `s.summary`, `s.cwd`, and
-the following `t.` columns:
+and `updated_at`. Wildcards and expressions over supported columns are allowed.
+Aliases are optional for `sessions` and customizable for joined queries.
+Ordering and pagination are optional; the following are useful time columns:
 
-| Joined table | Allowed `t.` columns | Required descending order |
+| Joined table | Available history columns | Suggested time column |
 | --- | --- | --- |
 | `turns` | `session_id`, `turn_index`, `user_message`, `assistant_response`, `timestamp` | `t.timestamp` |
 | `checkpoints` | `session_id`, `checkpoint_number`, `title`, `overview`, `created_at` | `t.created_at` |
@@ -134,13 +137,15 @@ the following `t.` columns:
 | --- | --- | --- |
 | Run `git --no-pager status --short` through `powershell` | Allowed | Exact command, synchronous, not detached. Git configuration/helpers remain a local execution risk. |
 | Run `git -c core.fsmonitor=false --no-pager status --short` | Allowed | Exact alternative disables the fsmonitor helper for this operation. |
-| Run Git diff, log, show, fetch, commit, push, or GitHub CLI commands directly | Blocked | No general Git/GitHub shell allowlist. A human can separately review a fixed task. |
-| Append commands, pipes, or extra options to an allowed command | Blocked | Exact command comparison; no shell expansion grant. |
+| Inspect full Git diffs/logs | Conditional | `git --no-pager diff` or `git --no-pager log`, supported display flags, revision ranges and relative paths after `--`. Output is not redacted; Git configuration/helpers remain trusted local code. Prefer `--no-ext-diff --no-textconv` for diffs. |
+| Run Git show, fetch, commit, push, or GitHub CLI commands directly | Blocked | No general Git/GitHub shell allowlist. A human can separately review a fixed task. |
+| Append commands, pipes, or unlisted options to an allowed command | Blocked | Validated command shape; no shell expansion grant. |
 | Run an arbitrary PowerShell command, script, Python program, SQL query, or notebook directly | Blocked | Outside the reviewed task wrapper. |
 | Run a named, human-reviewed development task | Conditional | Exact installed-wrapper command, valid task policy, synchronous execution, and valid external digests. |
 | Run approved tests, builds, formatters, or linters | Conditional | Fixed reviewed task; review code, imports, fixtures, configuration, executable, and side effects. |
-| Return task pass/fail and exit-code metadata | Allowed | Child stdout/stderr are captured, not streamed to model context. |
-| Return raw test errors, logs, previews, or child output through the wrapper | Blocked | Task wrapper returns status only. Files written inside the trusted project remain independently readable. |
+| Return task pass/fail and exit-code metadata | Allowed | All tasks retain status/exit-code results; default output mode is status-only. |
+| Diagnose a failed local test from assertions, tracebacks, or test output | Conditional | Human-reviewed task with `output: "diagnostics"` and `synthetic_only: true`; no business data or live-data credentials. Captured stdout/stderr is bounded to 1 MiB. The flag is attestation, not scanning. |
+| Return child output from a default/status-only task | Blocked | Output remains suppressed; synthetic diagnostics must be explicitly configured. Files written inside the trusted project remain independently readable. |
 | Start asynchronous/detached shell work | Blocked | The supported shell path requires synchronous, attached execution. |
 | Use Bash or shell follow-up/session-management tools | Blocked | Not in the supported tool allowlist. |
 | Execute a task not marked `reviewed: true`, or with an invalid name/argument list | Blocked | Invalid task policy is rejected. |
@@ -160,11 +165,22 @@ python -I '<installed-plugin-root>\tools\privacy_guard.py' run --task <reviewed-
 | --- | --- | --- |
 | Select any of the nine bundled Fabric solution-building roles | Allowed | Role selection does not grant extra tool or data permissions. |
 | Read/edit eligible local Fabric solution code and definitions | Conditional | Project-root rules or external approval rules apply. |
-| Query Lakehouse, Warehouse, SQL endpoints, OneLake, semantic models, or reports through MCP | Blocked | MCP tools are not in the baseline allowlist, even for metadata or aggregates. |
-| Read live Fabric notebook outputs/run results through a connector | Blocked | No connector grant. A saved local file follows file-location rules instead. |
+| Discover live workspaces, items, capacities, OneLake namespaces and table names | Conditional | Only the 7 named inventory tools on the pinned `fabric-metadata` server. Exact arguments and UUID scopes; no friendly-name aliases or endpoint overrides. See the [tool policy](README.md#fabric-metadata-mcp-policy). |
+| Read Fabric API specifications, item definition documentation, examples and best practices through MCP | Conditional | Only the 6 named offline `docs_*` tools on `fabric-metadata`; these do not retrieve live item definitions. |
+| Inspect full live item/table/model definitions or report metadata | Blocked | Full definitions, raw table metadata, business literals, filters, annotations and verified answers are not approved. Column-level inspection remains deferred. |
+| Query Lakehouse, Warehouse, SQL endpoints, OneLake, semantic models, or reports through MCP | Blocked | SQL/DAX/KQL/M and value-search tools remain denied, including aggregate queries. |
+| Use another MCP server or call a new tool introduced by an upgrade | Blocked | No server-wide or suffix-based approval. The package is pinned; only 13 exact tool names and supported arguments are accepted. |
+| Retrieve descriptions/tags or sensitive names through an allowed inventory tool | Not covered | Results and service errors are not redacted. Use only a curated technical-metadata environment and least-privilege credentials. |
+| Restrict MCP discovery to project-specific Fabric workspace IDs | Not covered | Discovery follows the server identity's Fabric permissions; no project workspace allowlist is implemented. |
+| Read live Fabric notebook outputs/run results through a connector | Blocked | Inventory approval does not grant outputs or operation-result tools. A saved local file follows file-location rules instead. |
 | Deploy or execute Fabric workloads through an operator agent | Blocked | The role exists, but live deployment tools have no baseline grant. Reviewed tasks are a separate execution path. |
-| Delegate to another agent, including a bundled Fabric agent | Blocked | `task` and other delegation tools are not allowlisted. |
-| Invoke skills, browser automation, web search/fetch, IDE diagnostics, or semantic search tools | Blocked | Tool availability or agent instructions do not authorize their execution. |
+| Delegate to a bundled Fabric agent | Conditional | Synchronous `task` to an exact `fabric-project-toolkit:<role>` with the full AGENTS.md handoff contract. Verify child-hook inheritance with synthetic client tests; validating the parent request does not prove child enforcement. |
+| Delegate to arbitrary agents, override the delegated model, or use background delegation | Blocked | Not part of the constrained delegation grant. |
+| Load an allowlisted Fabric skill | Conditional | Exact name in `FABRIC_SKILLS`; skill must be installed. Follow-up tools remain independently gated, and external reference files still require approval. |
+| Fetch public Microsoft documentation, including while using a Fabric skill | Conditional | `web_fetch` HTTPS on `learn.microsoft.com`, `docs.microsoft.com`, or `code.visualstudio.com`; no credentials/query/fragment. Never put business values in URLs. Initial URL check only; redirects are not constrained by the hook. |
+| Invoke unlisted skills, browser automation, general web search/fetch, IDE diagnostics, or semantic search tools | Blocked | The documentation/skill grants are narrow, not general tool access. |
+| Obtain a query/script for sampling business rows | Allowed | Guidance only: unexecuted read-only template from permitted schema knowledge, or explicitly marked placeholders. User runs and analyzes it in their authorized environment. |
+| Ask the user to paste business-row query output | Blocked by guidance | Never request a copy; ask only for non-sensitive observations or technical conclusions. User messages are not hook-filtered. |
 | Ask the user a question through the supported `ask_user` payload | Conditional | This engine accepts `question`, optional `choices`, and optional Boolean `allow_freeform`; other payload shapes are denied. |
 | Use the session operational SQL tool (`sql`) | Blocked | Distinct from the narrowly scoped `session_store_sql` history path. |
 | Use an unknown tool, namespace alias, or new argument | Blocked | Only known bare tool names and their exact `functions.` forms are recognized; supported arguments remain validated. |

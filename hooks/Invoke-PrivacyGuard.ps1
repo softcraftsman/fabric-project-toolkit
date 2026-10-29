@@ -58,7 +58,13 @@ try {
     elseif ($result -isnot [System.Array] -and $result.permissionDecision -ceq 'deny') {
         $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_POLICY_DENIED"}'
         if ($result.permissionDecisionReason -ceq 'HISTORY_SCOPE_REQUIRED') {
-            $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_HISTORY_SCOPE_REQUIRED: Use source=local. Supported SQL: SELECT id, summary, updated_at FROM sessions WHERE cwd=''<exact project root>'' ORDER BY updated_at DESC LIMIT 20; or SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t JOIN sessions AS s ON t.session_id=s.id WHERE s.cwd=''<exact project root>'' ORDER BY t.timestamp DESC LIMIT 50. Substitute the current project root and escape SQL quotes. No unscoped queries."}'
+            $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_HISTORY_SCOPE_REQUIRED: Use source=local and a read-only SELECT from sessions with WHERE cwd=''<exact project root>''. For turns/checkpoints/session_files/session_refs, join sessions on session_id=id and require the qualified sessions cwd predicate as a top-level AND condition. Filters, wildcard columns, aggregates and optional ORDER BY/LIMIT are supported; put OR filters in parentheses after AND. No row cap. No cross-project reads, subqueries, unions or arbitrary SQL functions. Escape SQL quotes."}'
+        }
+        elseif ($result.permissionDecisionReason -ceq 'FABRIC_DELEGATION_REQUIRED') {
+            $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_FABRIC_DELEGATION_REQUIRED: Only synchronous fabric-project-toolkit:<role> delegation is supported. Include the exact delegation contract from project AGENTS.md. Do not delegate to bypass another denial."}'
+        }
+        elseif ($result.permissionDecisionReason -ceq 'FABRIC_METADATA_ONLY') {
+            $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_FABRIC_METADATA_ONLY: Only reviewed fabric-metadata documentation and inventory tools with constrained arguments are supported. Queries, values, full definitions, files, permissions and mutations remain blocked. Do not retry denied actions through a skill, agent or another access path."}'
         }
     }
 }

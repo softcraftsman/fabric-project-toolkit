@@ -5,8 +5,9 @@ Policy checks do not establish that a client actually invokes this hook. Reviewe
 tasks execute mutable local code with the caller's privileges; output suppression
 does not prevent network access, credential access, or other child side effects.
 Bare and functions.-qualified built-ins share the same checks. Repository
-discovery rejects filesystem aliases; local history requires scoped templates.
-Installed agent profiles do not grant delegation or other tool capabilities.
+discovery rejects filesystem aliases; local history requires project scope.
+Named Fabric agents/skills and documentation have constrained grants; child
+hook inheritance and fetch redirects require independent client verification.
 """
 
 import argparse
@@ -16,12 +17,14 @@ import ntpath
 import os
 from pathlib import Path
 import re
+import sqlite3
 import stat
 import subprocess
 import sys
 import threading
 import unicodedata
 import uuid
+from urllib.parse import urlsplit
 
 
 POLICY_PATH = Path(".copilot-privacy") / "policy.json"
@@ -38,7 +41,45 @@ CONTROL_PARTS = {
 }
 CONTROL_NAMES = {
     "agents.md", "copilot-instructions.md", "plugin.json", "hooks.json",
-    "privacy_guard.py",
+    "privacy_guard.py", "mcp-config.json", ".mcp.json",
+}
+FABRIC_AGENTS = {
+    "delivery-lead", "solution-architect", "data-pipeline-engineer",
+    "fabric-operator", "semantic-model-engineer", "application-ai-engineer",
+    "quality-engineer", "independent-reviewer", "notebook-enablement-author",
+}
+FABRIC_SKILLS = {
+    "spark-cli", "sqldw-cli", "sqldb-cli", "pipeline-migration",
+    "dataflows-cli", "eventhouse-cli", "eventstream-cli", "eventschemaset-cli",
+    "activator-cli", "semantic-model-authoring", "fabriciq",
+    "fabriciq-ontology-cli", "variable-library-cli",
+    "git-integration-operations-cli", "deployment-pipelines-authoring-cli",
+    "onelake-catalog-govern-cli", "search-consumption-cli",
+    "azmon-mirroredcatalogs-operations-cli", "e2e-medallion-architecture",
+    "e2e-fabric-cost-estimation", "databricks-migration", "synapse-migration",
+    "hdinsight-migration",
+}
+DELEGATION_RULES = (
+    "Follow project AGENTS.md and the privacy hook; do not bypass denials. "
+    "Do not execute business-row queries or request business-data output. "
+    "Offer an unexecuted read-only query/script for the user to run and analyze. "
+    "Use only permitted schema knowledge. Delegate only to this plugin's Fabric "
+    "agents with these same rules. No policy changes or expanded permissions."
+)
+FABRIC_MCP_ARGUMENTS = {
+    "docs_list-item-types": ((), ()),
+    "docs_platform-api-spec": ((), ()),
+    "docs_item-api-spec": (("item-type",), ()),
+    "docs_item-definitions": (("item-type",), ()),
+    "docs_api-examples": (("item-type",), ()),
+    "docs_best-practices": (("topic",), ()),
+    "core_list-workspaces": ((), ("roles", "continuation-token", "prefer-workspace-specific-endpoints")),
+    "core_list-items": (("workspace-id",), ("type", "recursive", "root-folder-id", "continuation-token")),
+    "core_get-item": (("workspace-id", "item-id"), ()),
+    "core_list-capacities": ((), ("continuation-token",)),
+    "core_get-capacity": (("capacity-id",), ()),
+    "onelake_list-table-namespaces": (("workspace-id", "item-id"), ()),
+    "onelake_list-tables": (("workspace-id", "item-id", "namespace"), ()),
 }
 
 
@@ -235,13 +276,19 @@ def validate_policy(policy):
     for name, task in policy["tasks"].items():
         if not isinstance(name, str) or not TASK_PATTERN.fullmatch(name):
             fail("INVALID_TASK")
-        _keys(task, ("argv", "reviewed"))
+        _keys(task, ("argv", "reviewed"), ("output", "synthetic_only"))
         if task["reviewed"] is not True:
             fail("TASK_NOT_REVIEWED")
         if not isinstance(task["argv"], list) or not task["argv"]:
             fail("INVALID_TASK")
         for argument in task["argv"]:
             _text(argument)
+        if task.get("output", "status") not in ("status", "diagnostics"):
+            fail("INVALID_TASK")
+        if "synthetic_only" in task and type(task["synthetic_only"]) is not bool:
+            fail("INVALID_TASK")
+        if task.get("output") == "diagnostics" and task.get("synthetic_only") is not True:
+            fail("SYNTHETIC_ATTESTATION_REQUIRED")
     return policy
 
 
@@ -356,44 +403,116 @@ def history_query(root, arguments):
     _text(arguments["description"])
     if arguments.get("source") != "local":
         fail("HISTORY_SCOPE_REQUIRED")
-    query = _text(arguments["query"])
-    literal = r"'(?P<cwd>(?:[^']|'')*)'"
-    sessions = (
-        r"SELECT\s+(?P<columns>[a-z_,.\s]+?)\s+FROM\s+sessions\s+"
-        r"WHERE\s+cwd\s*=\s*" + literal
-        + r"\s+ORDER\s+BY\s+updated_at\s+DESC\s+LIMIT\s+(?P<limit>[0-9]+)\s*;?\s*"
+    query = _text(arguments["query"]).strip().removesuffix(";")
+    token_pattern = re.compile(
+        r"\s+|'(?:[^']|'')*'|[a-zA-Z_][a-zA-Z_0-9]*|[0-9]+(?:\.[0-9]+)?|"
+        r"<=|>=|<>|!=|==|[(),.*=<>+/%-]"
     )
-    match = re.fullmatch(sessions, query, re.I)
-    allowed = {"id", "summary", "cwd", "repository", "branch", "created_at", "updated_at"}
-    if match is None:
-        joined = (
-            r"SELECT\s+(?P<columns>[a-z_,.\s]+?)\s+FROM\s+"
-            r"(?P<table>turns|checkpoints|session_files|session_refs)\s+AS\s+t\s+"
-            r"JOIN\s+sessions\s+AS\s+s\s+ON\s+t\.session_id\s*=\s*s\.id\s+"
-            r"WHERE\s+s\.cwd\s*=\s*" + literal
-            + r"\s+ORDER\s+BY\s+t\.(?P<order>[a-z_]+)\s+DESC\s+"
-            r"LIMIT\s+(?P<limit>[0-9]+)\s*;?\s*"
+    tokens = []
+    position = 0
+    for match in token_pattern.finditer(query):
+        if match.start() != position:
+            fail("HISTORY_SCOPE_REQUIRED")
+        position = match.end()
+        if not match[0].isspace():
+            tokens.append(match[0])
+    if position != len(query) or not tokens:
+        fail("HISTORY_SCOPE_REQUIRED")
+    lower = [token.lower() if not token.startswith("'") else token for token in tokens]
+    if lower[0] != "select" or lower.count("select") != 1 or any(
+        token in lower for token in (
+            "union", "intersect", "except", "with", "over", "collate",
         )
-        match = re.fullmatch(joined, query, re.I)
-        if match is None:
+    ) or "--" in query or "/*" in query:
+        fail("HISTORY_SCOPE_REQUIRED")
+    try:
+        from_index = lower.index("from")
+        where_index = lower.index("where", from_index)
+    except ValueError:
+        fail("HISTORY_SCOPE_REQUIRED")
+    relation = " ".join(lower[from_index + 1:where_index])
+    identifier = r"[a-z_][a-z_0-9]*"
+    single = re.fullmatch(rf"sessions(?: (?:as )?({identifier}))?", relation)
+    if single:
+        alias = single[1]
+        scope_column = [alias, ".", "cwd"] if alias else ["cwd"]
+    else:
+        joined = re.fullmatch(
+            rf"(turns|checkpoints|session_files|session_refs) (?:as )?({identifier}) "
+            rf"(?:inner )?join sessions (?:as )?({identifier}) on "
+            rf"({identifier}) \. session_id = ({identifier}) \. id", relation,
+        )
+        if (
+            joined is None or joined[2] == joined[3]
+            or joined[4] != joined[2] or joined[5] != joined[3]
+        ):
             fail("HISTORY_SCOPE_REQUIRED")
-        tables = {
-            "turns": ("timestamp", {"session_id", "turn_index", "user_message", "assistant_response", "timestamp"}),
-            "checkpoints": ("created_at", {"session_id", "checkpoint_number", "title", "overview", "created_at"}),
-            "session_files": ("first_seen_at", {"session_id", "file_path", "tool_name", "turn_index", "first_seen_at"}),
-            "session_refs": ("created_at", {"session_id", "ref_type", "ref_value", "turn_index", "created_at"}),
-        }
-        order, fields = tables[match["table"].lower()]
-        if match["order"].lower() != order:
+        scope_column = [joined[3], ".", "cwd"]
+    # Scope must be a top-level AND conjunct. OR is safe only within a separate
+    # parenthesized filter, where it cannot widen the mandatory project filter.
+    conjuncts = []
+    start = where_index + 1
+    depth = 0
+    for index in range(start, len(tokens)):
+        token = lower[index]
+        if depth == 0:
+            if token in ("group", "order", "limit"):
+                conjuncts.append(tokens[start:index])
+                break
+            if token == "or":
+                fail("HISTORY_SCOPE_REQUIRED")
+            if token == "and":
+                conjuncts.append(tokens[start:index])
+                start = index + 1
+        if token == "(":
+            depth += 1
+        elif token == ")":
+            depth -= 1
+        if depth < 0:
             fail("HISTORY_SCOPE_REQUIRED")
-        allowed = {"t." + field for field in fields} | {"s.id", "s.summary", "s.cwd"}
-    columns = [column.strip().lower() for column in match["columns"].split(",")]
-    cwd = match["cwd"].replace("''", "'").replace("/", "\\")
-    if (
-        not columns or any(column not in allowed for column in columns)
-        or cwd.casefold() != str(root).casefold()
-        or not 1 <= int(match["limit"]) <= 100
+    else:
+        conjuncts.append(tokens[start:])
+    expected = "'" + str(root).replace("'", "''") + "'"
+    if not any(
+        [token.lower() if not token.startswith("'") else token for token in clause]
+        == scope_column + ["=", expected]
+        for clause in conjuncts
     ):
+        fail("HISTORY_SCOPE_REQUIRED")
+    # Prepare against an empty schema, never the real history store. SQLite
+    # validates expressions; its authorizer blocks non-history reads and unsafe
+    # functions. No query is executed, including functions supplied by the agent.
+    schema = {
+        "sessions": "id summary cwd repository branch created_at updated_at",
+        "turns": "session_id turn_index user_message assistant_response timestamp",
+        "checkpoints": "session_id checkpoint_number title overview created_at",
+        "session_files": "session_id file_path tool_name turn_index first_seen_at",
+        "session_refs": "session_id ref_type ref_value turn_index created_at",
+    }
+    functions = {
+        "count", "sum", "avg", "min", "max", "total", "coalesce", "ifnull",
+        "nullif", "lower", "upper", "length", "substr", "substring", "instr",
+        "trim", "ltrim", "rtrim", "replace", "round", "abs", "like", "glob",
+        "date", "datetime", "time", "julianday", "strftime", "unixepoch",
+        "group_concat",
+    }
+
+    def authorize(action, first, second, _database, _trigger):
+        if action == sqlite3.SQLITE_SELECT:
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_READ and first in schema:
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_FUNCTION and second.lower() in functions:
+            return sqlite3.SQLITE_OK
+        return sqlite3.SQLITE_DENY
+
+    try:
+        with sqlite3.connect(":memory:") as database:
+            for table, columns in schema.items():
+                database.execute(f"CREATE TABLE {table} ({', '.join(columns.split())})")
+            database.set_authorizer(authorize)
+            database.execute("EXPLAIN " + query)
+    except sqlite3.Error:
         fail("HISTORY_SCOPE_REQUIRED")
 
 
@@ -402,6 +521,137 @@ def runner_command(task):
         fail("INVALID_TASK")
     location = str(Path(__file__).resolve()).replace("'", "''")
     return f"python -I '{location}' run --task {task}"
+
+
+def directory_command(relative):
+    _parts(relative)
+    if "'" in relative:
+        fail("INVALID_PATH")
+    location = str(Path(__file__).resolve()).replace("'", "''")
+    return f"python -I '{location}' mkdir --path '{relative}'"
+
+
+def directory_target(root, relative):
+    parts = _parts(relative)
+    if (
+        any(part.casefold() in CONTROL_PARTS for part in parts)
+        or parts[-1].casefold() in CONTROL_NAMES
+    ):
+        fail("CONTROL_PATH")
+    path = root.joinpath(*parts)
+    if _inside(path, PLUGIN_ROOT):
+        fail("CONTROL_PATH")
+    ancestor = path
+    while True:
+        try:
+            ancestor.lstat()
+            break
+        except FileNotFoundError:
+            ancestor = ancestor.parent
+    _no_links(ancestor)
+    if not ancestor.is_dir():
+        fail("INVALID_PATH")
+    return path
+
+
+def make_directory(relative):
+    root = project_root(Path.cwd())
+    load_policy(root)
+    path = directory_target(root, relative)
+    path.mkdir(parents=True, exist_ok=True)
+    _no_links(path)
+    return {"status": "created", "reason": "PROJECT_DIRECTORY"}
+
+
+def git_inspection(command):
+    if any(char in command for char in ";|&`$><\r\n"):
+        return False
+    tokens = re.findall(r'"[^"]*"|\'[^\']*\'|[^\s"\']+', command)
+    if " ".join(tokens) != command or tokens[:2] != ["git", "--no-pager"] or len(tokens) < 3:
+        return False
+    if tokens[2] not in ("diff", "log"):
+        return False
+    options = {
+        "--cached", "--staged", "--stat", "--name-only", "--name-status",
+        "--numstat", "--shortstat", "--summary", "--patch", "-p", "--raw",
+        "--oneline", "--graph", "--all", "--decorate", "--no-decorate",
+        "--no-ext-diff", "--no-textconv", "--no-color", "--color=never",
+        "--full-history", "--reverse", "--date-order", "--topo-order",
+        "--no-renames", "--find-renames", "--check",
+    }
+    after_separator = False
+    for token in tokens[3:]:
+        if token == "--" and not after_separator:
+            after_separator = True
+            continue
+        if not after_separator and (token in options or re.fullmatch(
+            r"(?:-n[0-9]+|--max-count=[0-9]+|--unified=[0-9]+|-[0-9]+)", token
+        )):
+            continue
+        value = token.strip("'\"")
+        if after_separator:
+            if token[0] not in "'\"" and not re.fullmatch(r"[a-zA-Z0-9_.\\/-]+", token):
+                return False
+            try:
+                _parts(value.replace("/", "\\"))
+            except PolicyError:
+                return False
+        elif not re.fullmatch(r"[a-zA-Z0-9_][a-zA-Z0-9_./~^-]*", value) or value.startswith("-"):
+            return False
+    return True
+
+
+def documentation_request(arguments):
+    _keys(arguments, ("url",), ("max_length", "start_index", "raw"))
+    url = urlsplit(_text(arguments["url"]))
+    if (
+        url.scheme != "https" or url.hostname not in (
+            "learn.microsoft.com", "docs.microsoft.com", "code.visualstudio.com",
+        )
+        or url.username is not None or url.password is not None or url.port not in (None, 443)
+        or url.query or url.fragment or not url.path.startswith("/")
+        or any(char in url.path for char in "\\\r\n")
+    ):
+        fail("DOCUMENTATION_ONLY")
+    for key, maximum in (("max_length", 20000), ("start_index", 1000000)):
+        if key in arguments and (
+            type(arguments[key]) is not int or not 0 <= arguments[key] <= maximum
+        ):
+            fail("INVALID_ARGUMENTS")
+    _bools(arguments, ("raw",))
+
+
+def fabric_metadata_request(name, arguments):
+    tool = name.removeprefix("fabric-metadata-")
+    if tool not in FABRIC_MCP_ARGUMENTS:
+        fail("FABRIC_METADATA_ONLY")
+    _keys(arguments, *FABRIC_MCP_ARGUMENTS[tool])
+    for key, value in arguments.items():
+        if key in ("workspace-id", "item-id", "capacity-id", "root-folder-id"):
+            if (
+                not re.fullmatch(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", _text(value))
+                or uuid.UUID(value).int == 0
+            ):
+                fail("FABRIC_METADATA_ONLY")
+        elif key in ("type", "item-type", "namespace"):
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", _text(value)):
+                fail("FABRIC_METADATA_ONLY")
+        elif key == "topic":
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 _-]{0,79}", _text(value)):
+                fail("FABRIC_METADATA_ONLY")
+        elif key == "roles":
+            if any(role.strip().casefold() not in ("admin", "member", "contributor", "viewer")
+                   for role in _text(value).split(",")):
+                fail("FABRIC_METADATA_ONLY")
+        elif key == "continuation-token":
+            if len(_text(value)) > 8192 or any(ord(char) < 32 or ord(char) == 127 for char in value):
+                fail("FABRIC_METADATA_ONLY")
+        elif key == "recursive":
+            if value is not None and type(value) is not bool:
+                fail("FABRIC_METADATA_ONLY")
+        elif key == "prefer-workspace-specific-endpoints":
+            if value is not None and value is not False:
+                fail("FABRIC_METADATA_ONLY")
 
 
 def deny(code):
@@ -415,21 +665,48 @@ def _bools(arguments, names):
 
 
 def tool_decision(payload):
-    _keys(payload, ("toolName", "toolArgs", "cwd"))
+    _keys(payload, ("toolName", "toolArgs", "cwd"), (
+        "sessionId", "timestamp", "agentId", "agentType", "parentAgentId",
+    ))
     root = project_root(_text(payload["cwd"]))
     policy = load_policy(root)
     name = _text(payload["toolName"])
-    known = {"ask_user", "view", "edit", "create", "rg", "grep", "glob", "session_store_sql", "powershell"}
+    known = {
+        "ask_user", "view", "edit", "create", "rg", "grep", "glob",
+        "session_store_sql", "powershell", "web_fetch", "skill", "task",
+    }
     if name.startswith("functions.") and name[10:] in known:
         name = name[10:]
-    if name not in known:
+    metadata = name.startswith("fabric-metadata-")
+    if name not in known and not metadata:
         fail("TOOL_DENIED")
     arguments = payload["toolArgs"]
     if isinstance(arguments, str):
         arguments = parse_json(arguments)
     if not isinstance(arguments, dict):
         fail("INVALID_ARGUMENTS")
-    if name == "ask_user":
+    if metadata:
+        fabric_metadata_request(name, arguments)
+    elif name == "web_fetch":
+        documentation_request(arguments)
+    elif name == "skill":
+        _keys(arguments, ("skill",))
+        if arguments["skill"] not in FABRIC_SKILLS:
+            fail("SKILL_DENIED")
+    elif name == "task":
+        _keys(arguments, ("agent_type", "prompt", "description"), ("name", "mode"))
+        if (
+            arguments["agent_type"] not in {
+                "fabric-project-toolkit:" + agent for agent in FABRIC_AGENTS
+            }
+            or arguments.get("mode", "sync") != "sync"
+            or DELEGATION_RULES not in _text(arguments["prompt"])
+        ):
+            fail("FABRIC_DELEGATION_REQUIRED")
+        _text(arguments["description"])
+        if "name" in arguments:
+            _text(arguments["name"])
+    elif name == "ask_user":
         _keys(arguments, ("question",), ("choices", "allow_freeform"))
         _text(arguments["question"])
         if "choices" in arguments:
@@ -513,6 +790,18 @@ def tool_decision(payload):
         if "initial_wait" in arguments and (type(arguments["initial_wait"]) is not int or not 30 <= arguments["initial_wait"] <= 600):
             fail("INVALID_ARGUMENTS")
         command = _text(arguments["command"])
+        if git_inspection(command):
+            return {}
+        prefix = directory_command("placeholder").rsplit("'placeholder'", 1)[0]
+        if command.startswith(prefix):
+            quoted = command[len(prefix):]
+            if len(quoted) < 3 or quoted[0] != "'" or quoted[-1] != "'":
+                fail("SHELL_DENIED")
+            relative = quoted[1:-1]
+            if command != directory_command(relative):
+                fail("SHELL_DENIED")
+            directory_target(root, relative)
+            return {}
         if command in (
             "git --no-pager status --short",
             "git -c core.fsmonitor=false --no-pager status --short",
@@ -623,6 +912,8 @@ def run_task(name):
             exceeded.set()
         else:
             child.stdout.close()
+            if policy["tasks"][name].get("output") == "diagnostics":
+                result["output"] = captured.decode("utf-8", errors="replace")
         captured.clear()
         result["exit_code"] = code
         result["status"] = "success" if code == 0 and not exceeded.is_set() else "failure"
@@ -652,6 +943,8 @@ def main(argv=None):
         checking.add_argument("--project", required=True)
         running = commands.add_parser("run", add_help=False)
         running.add_argument("--task", required=True)
+        directory = commands.add_parser("mkdir", add_help=False)
+        directory.add_argument("--path", required=True)
         options = parser.parse_args(argv)
         if options.action == "hook":
             result = hook(sys.stdin.buffer.read(MAX_INPUT_BYTES + 1))
@@ -661,6 +954,9 @@ def main(argv=None):
             code = 0
         elif options.action == "check":
             result = check(options.project)
+            code = 0
+        elif options.action == "mkdir":
+            result = make_directory(options.path)
             code = 0
         else:
             result = run_task(options.task)

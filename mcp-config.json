@@ -1,0 +1,40 @@
+{
+  "mcpServers": {
+    "fabric-metadata": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y", "@microsoft/fabric-mcp@1.6.0", "server", "start",
+        "--read-only", "--disable-proxy-tools",
+        "--tool", "docs_list-item-types",
+        "--tool", "docs_item-api-spec",
+        "--tool", "docs_platform-api-spec",
+        "--tool", "docs_item-definitions",
+        "--tool", "docs_best-practices",
+        "--tool", "docs_api-examples",
+        "--tool", "core_list-workspaces",
+        "--tool", "core_list-items",
+        "--tool", "core_get-item",
+        "--tool", "core_list-capacities",
+        "--tool", "core_get-capacity",
+        "--tool", "onelake_list-table-namespaces",
+        "--tool", "onelake_list-tables"
+      ],
+      "tools": [
+        "docs_list-item-types",
+        "docs_item-api-spec",
+        "docs_platform-api-spec",
+        "docs_item-definitions",
+        "docs_best-practices",
+        "docs_api-examples",
+        "core_list-workspaces",
+        "core_list-items",
+        "core_get-item",
+        "core_list-capacities",
+        "core_get-capacity",
+        "onelake_list-table-namespaces",
+        "onelake_list-tables"
+      ]
+    }
+  }
+}
