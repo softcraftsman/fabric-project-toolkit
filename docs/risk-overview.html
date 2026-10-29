@@ -196,13 +196,13 @@
     <thead><tr><th>Risk in a Fabric project</th><th>Control</th><th>Result</th></tr></thead>
     <tbody>
       <tr><td>Agent reads an unapproved external extract, export, log or notebook output</td><td>External files require individual source/synthetic approval and matching SHA-256 digest; project files are trusted without hashes</td><td><span class="tag blocked">Blocked externally</span></td></tr>
-      <tr><td>Agent searches directories or uses a glob to pull in matching rows</td><td>Search requires explicit file paths; internal files need no inventory, external files require approval</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent searches outside the trusted project tree</td><td>Directory listings, glob discovery and directory searches stay inside the project; external content searches require approved individual files. Trees containing filesystem aliases or special files are denied</td><td><span class="tag blocked">Scoped</span></td></tr>
       <tr><td>An approved external file is changed</td><td>Digest mismatch blocks reads, searches and edits until human reapproval; internal changes are not checked</td><td><span class="tag blocked">Blocked externally</span></td></tr>
       <tr><td>Agent queries Fabric, SQL endpoints, semantic models or OneLake through a connected tool</td><td>MCP and connector tools have no baseline approval</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Agent runs an arbitrary command, script or query and reads the output</td><td>Shell limited to one reviewed-task wrapper; no raw child output returned</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>Agent pulls prior session history or diagnostics that contain data</td><td>History retrieval and unfiltered diagnostics denied</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent pulls another project's history or arbitrary diagnostics</td><td>Local history requires fixed SQL templates filtering sessions by the exact project cwd. Cloud/cross-project history and arbitrary diagnostics remain denied</td><td><span class="tag blocked">Scoped</span></td></tr>
       <tr><td>Agent hands work to another agent, skill or browser with broader access</td><td>Delegation, skills and browsing denied by default</td><td><span class="tag blocked">Blocked</span></td></tr>
-      <tr><td>Agent edits the policy or hook to widen its own access</td><td>Policy, hook and plugin files are not writable targets; approval is a human-only command</td><td><span class="tag blocked">Blocked</span></td></tr>
+      <tr><td>Agent edits the policy or hook to widen its own access</td><td>Project control files are readable but not writable targets; approval is a human-only command</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Selecting a Fabric agent role implies data access</td><td>Roles are guidance only; the same tool restrictions apply to every role</td><td><span class="tag blocked">Blocked</span></td></tr>
       <tr><td>Team cannot tell whether protection is configured</td><td>Preflight reports static checks and always states that runtime enforcement is unverified</td><td><span class="tag reduced">Visible</span></td></tr>
       <tr><td>Using VS Code Copilot with agent features and connectors</td><td>Generated advisory profile disables agent mode, MCP, skills, plugins and terminal auto-approval</td><td><span class="tag reduced">Reduced</span></td></tr>
@@ -217,6 +217,7 @@
     <thead><tr><th>Remaining risk</th><th>Why it remains</th><th>Suggested complement</th></tr></thead>
     <tbody>
       <tr><td>Business data or secrets are placed inside the project root or its subdirectories</td><td>Project files are trusted without individual registration, content scanning, or hashes; existing policies adopt root trust automatically</td><td><span class="tag open">Open</span> Keep the project tree curated and business data outside it</td></tr>
+      <tr><td>Current-project session history already contains business data</td><td>History is trusted for the exact project, but prior prompts and responses are not scanned or redacted</td><td><span class="tag open">Open</span> Review historical content and model destination before retrieving transcripts</td></tr>
       <tr><td>A person pastes data into a prompt or attaches a file</td><td>User input is not a tool call</td><td><span class="tag open">Open</span> Training and a clear data-handling rule</td></tr>
       <tr><td>A reviewer approves a file that actually contains PHI/PII</td><td>Approval is a human attestation, not a content scanner</td><td><span class="tag open">Open</span> Second review for classified files; synthetic data standards</td></tr>
       <tr><td>VS Code inline suggestions, open editors and selections</td><td>The CLI hook does not intercept VS Code</td><td><span class="tag open">Open</span> Code-only workspace; administrator-managed policy</td></tr>
@@ -240,6 +241,7 @@
       <strong>Still works</strong>
       <ul>
         <li>Reading, creating and editing project files without per-file registration or hashes</li>
+        <li>Project directory/glob discovery, directory searches, Git status and project-scoped local history</li>
         <li>Reading and editing individually approved external files while their digests match</li>
         <li>Generating and reviewing code, notebooks and pipeline definitions</li>
         <li>Running reviewed tests and builds, with pass/fail reporting</li>

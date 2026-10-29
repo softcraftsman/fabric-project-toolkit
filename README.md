@@ -6,6 +6,9 @@ disclosure. The package retains its installation name, `fabric-project-toolkit`,
 and its existing agent roles. The [project goals](PROJECT-GOALS.md) define the
 intended direction.
 
+See the [use-case and access-decision inventory](USE-CASES.md) for what is
+allowed, conditional, blocked, or outside this plugin's coverage.
+
 **This is a cooperative development guardrail, not a BAA compliance
 certification, data-loss-prevention product, or execution sandbox.** Do not
 open a business-data workspace in Copilot to test it.
@@ -39,7 +42,12 @@ and MCP servers are separate dependencies, not bundled approval grants.
 - Denies unreviewed tools and arbitrary shell commands on the native CLI
   pre-tool hook path.
 - Trusts ordinary files in the project root and its subdirectories without
-  per-file entries or SHA-256 checks. Protected control paths remain blocked.
+  per-file entries or SHA-256 checks. Project control files are readable but
+  remain protected against edits.
+- Allows project directory listings, glob discovery and directory searches,
+  after checking the search tree for filesystem aliases and special files.
+- Allows read-only local history through exact project-scoped SQL templates,
+  and the exact `git --no-pager status --short` command.
 - Requires individual human approval and matching SHA-256 digests only for
   files outside the project root, including before external edits.
 - Runs explicitly reviewed development tasks through a wrapper that returns
@@ -49,7 +57,7 @@ and MCP servers are separate dependencies, not bundled approval grants.
 - Reports static configuration checks separately from unverified runtime
   protection.
 
-MCP tools, live-data queries, history retrieval, arbitrary diagnostics, skills,
+MCP tools, live-data queries, cross-project/cloud history, arbitrary diagnostics, skills,
 delegation, browser tools, and unrestricted shell execution have no baseline
 approval. Metadata, schemas, identifiers, aggregates, and notebook outputs are
 not automatically safe. This baseline does not provide an exception mechanism
@@ -80,6 +88,8 @@ synthetic protocol and fresh-session behavior after client upgrades.
    select it for the project window.
 6. **Start a fresh CLI session from the project root**, confirm the plugin and
    hook are loaded, and test with synthetic files only.
+   Install the [shared agent instructions](#shared-agent-instructions) first so
+   bundled and other project agents receive the same fallback guidance.
 
 Keep business data out of the project folder and out of pasted prompts; the
 guard cannot see those paths.
@@ -119,8 +129,8 @@ reviewed revision. Access to a private repository requires GitHub authentication
 for both Copilot's installer and Git.
 
 Setup starts with an empty external-file/task policy. **The project root and
-its subdirectories are trusted automatically**, except policy, hook, plugin,
-and other protected control paths. Internal files require neither approval
+its subdirectories are trusted automatically** for reads. Policy, hook, plugin,
+and other control paths remain protected against edits. Internal files require neither approval
 entries nor hashes, even after edits. Keep business data and secrets outside
 that tree: an export saved inside it can enter model context.
 
@@ -143,9 +153,14 @@ External-file digests detect changes after review, not whether the original
 review was correct. External reads, searches, and edits require a matching
 digest; reapprove after changes, including agent edits. Internal approval calls
 return `PROJECT_ROOT_TRUSTED` without adding entries or hashing the file.
-Searches still require explicit file paths; directory/glob searches are not
-enabled by root trust. Symlinks, junctions, hard-linked files, and path traversal
-remain blocked rather than inheriting trust from a project-local alias.
+Directory listings, `glob` discovery, and `rg`/`grep` directory searches are
+allowed inside the project, including default-current-directory searches and
+ordinary glob/type filters. Discovery accepts `/` or `\` path separators.
+External directories are not granted access: external content searches still
+require approved individual files. Symlinks, junctions, hard-linked files,
+special files, and path traversal remain blocked. A directory search/listing is
+denied if its entire possible input tree contains one of these, or exceeds
+50,000 entries; narrow the search to an ordinary subdirectory in that case.
 Policy, hook, and plugin implementation files are not ordinary editable targets.
 The assistant must not approve its own changes or broaden the policy.
 
@@ -168,6 +183,78 @@ available instead of using the installed copy:
 ```powershell
 copilot --plugin-dir "$ToolkitRoot"
 ```
+
+## Shared agent instructions
+
+[AGENTS.md](AGENTS.md) defines project-wide guidance for the bundled Fabric
+roles and other agents, including the default fallback when a data query is
+blocked: respect the denial, do not bypass it, and offer only an explicitly
+unexecuted read-only SQL/DAX template using permitted schema knowledge.
+
+For **new and existing target projects**, run this from a human terminal after
+setting `$ToolkitRoot` and `$ProjectRoot` as above:
+
+```powershell
+python -I "$ToolkitRoot\tools\project_setup.py" instructions --project "$ProjectRoot"
+```
+
+This creates root `AGENTS.md`, or appends the shared guidance while preserving
+existing bytes. Repeating the command with identical guidance changes nothing.
+If the marked guidance was modified or comes from an older version, the command
+requests human review rather than overwriting it. Review and commit the file,
+then start a fresh agent session. `init` remains unchanged and does not install
+instructions implicitly.
+
+Root `AGENTS.md` is the project-wide default for clients/agents that load it;
+installing the plugin alone does not install these instructions into a target
+repository. Review nested instructions and custom agent prompts for conflicts,
+and include relevant rules in authorized handoffs to agents that do not inherit
+them. Instructions are behavioral guidance, not guaranteed enforcement across
+every agent or harness; the policy hook remains the tool-access gate.
+
+Uninstalling the plugin does not remove shared instructions appended to
+`AGENTS.md`. A human can remove the marked toolkit section while retaining
+the project's other instructions.
+
+## Repository status and current-project history
+
+The exact command `git --no-pager status --short` is allowed through the
+PowerShell tool. Other Git/shell commands still need a reviewed task.
+For repositories with custom Git helpers, prefer
+`git -c core.fsmonitor=false --no-pager status --short` to disable the fsmonitor
+helper for the status operation. Git configuration remains trusted local code.
+
+The `session_store_sql` tool is allowed only with **`source: "local"`** and one
+of these query shapes. Replace `<project-root>` with the exact current project
+root (`cwd`), escaping any apostrophe as `''`. Do not send an unscoped query
+first; the hook will deny it and provide the supported query shapes.
+
+```sql
+SELECT id, summary, updated_at FROM sessions
+WHERE cwd = '<project-root>'
+ORDER BY updated_at DESC LIMIT 20
+```
+
+```sql
+SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t
+JOIN sessions AS s ON t.session_id = s.id
+WHERE s.cwd = '<project-root>'
+ORDER BY t.timestamp DESC LIMIT 50
+```
+
+The joined shape also supports `checkpoints` (order by `t.created_at`),
+`session_files` (order by `t.first_seen_at`), and `session_refs` (order by
+`t.created_at`), selecting their documented columns with the `t.` prefix.
+Session discovery selects named session columns without an alias. Queries must
+use the exact shapes above with a limit of 1-100 rows. Wildcards, arbitrary SQL
+expressions, additional predicates, unscoped session IDs, and cloud history are
+not allowed. Scope is the exact project directory, not every clone or worktree
+with the same Git remote. History absent from the local store is not retrieved.
+
+**Current-project history is trusted content, not a sanitized result.** It may
+contain text or tool results from previous work, including material originally
+read outside the project. Do not rely on the project filter to remove business
+data from old transcripts. Keep such history out of non-approved model context.
 
 ## Uninstall
 

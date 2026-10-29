@@ -57,6 +57,9 @@ try {
     }
     elseif ($result -isnot [System.Array] -and $result.permissionDecision -ceq 'deny') {
         $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_POLICY_DENIED"}'
+        if ($result.permissionDecisionReason -ceq 'HISTORY_SCOPE_REQUIRED') {
+            $decision = '{"permissionDecision":"deny","permissionDecisionReason":"CLI_HISTORY_SCOPE_REQUIRED: Use source=local. Supported SQL: SELECT id, summary, updated_at FROM sessions WHERE cwd=''<exact project root>'' ORDER BY updated_at DESC LIMIT 20; or SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t JOIN sessions AS s ON t.session_id=s.id WHERE s.cwd=''<exact project root>'' ORDER BY t.timestamp DESC LIMIT 50. Substitute the current project root and escape SQL quotes. No unscoped queries."}'
+        }
     }
 }
 catch {

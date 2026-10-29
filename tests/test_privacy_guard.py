@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -88,8 +89,8 @@ class PrivacyGuardTests(unittest.TestCase):
 
     def test_unknown_capabilities_and_prefix_spoofing_denied(self):
         for name in (
-            "mcp.read", "web_fetch", "web_search", "session_store_sql", "get_diagnostics",
-            "task", "skill", "sql", "browser", "glob", "bash", "apply_patch",
+            "mcp.read", "web_fetch", "web_search", "get_diagnostics",
+            "task", "skill", "sql", "browser", "bash", "apply_patch",
             "functions.apply_patch", "functions.mcp.read", "functions.functions.view",
             "future_tool", "get_file_contents",
         ):
@@ -135,24 +136,20 @@ class PrivacyGuardTests(unittest.TestCase):
             }), {})
         for name in ("grep", "functions.grep"):
             self.assertEqual(self.decision(name, {"pattern": "answer", "path": "sample.py"}), {})
-            self.denied(name, {"pattern": "answer", "path": "."})
+            self.assertEqual(self.decision(name, {"pattern": "answer", "path": "."}), {})
             self.denied(name, {"pattern": "answer", "path": ["sample.py"]})
             self.denied(name, {"pattern": "answer", "path": "sample.py", "paths": "sample.py"})
-            self.denied(name, {"pattern": "answer", "path": "sample.py", "glob": "*.py"})
+            self.assertEqual(self.decision(name, {"pattern": "answer", "path": "sample.py", "glob": "*.py"}), {})
         self.denied("rg", {"pattern": "answer", "path": "sample.py"})
         for args in (
-            {"pattern": "answer"}, {"pattern": "answer", "paths": []},
-            {"pattern": "answer", "paths": "."},
-            {"pattern": "answer", "paths": [str(self.root)]},
+            {"pattern": "answer", "paths": []},
             {"pattern": "answer", "paths": ["sample.py", "missing.py"]},
-            {"pattern": "answer", "paths": "sample.py", "glob": "**"},
-            {"pattern": "answer", "paths": "sample.py", "type": "py"},
             {"pattern": "answer", "paths": "sample.py", "extra_args": "--files"},
             {"pattern": "answer", "paths": "sample.py", "-C": True},
             {"pattern": "--pre=unreviewed", "paths": "sample.py"},
         ):
             self.denied("rg", args)
-        self.denied("view", {"path": str(self.root)})
+        self.assertEqual(self.decision("view", {"path": str(self.root)}), {})
         self.denied("view", {"path": "sample.py", "view_range": [True, -1]})
         self.denied("view", {"path": "sample.py", "forceReadLargeFiles": "true"})
 
@@ -180,6 +177,151 @@ class PrivacyGuardTests(unittest.TestCase):
         self.denied("create", {"path": ".copilot-privacy\\new.json", "file_text": "{}"})
         self.denied("create", {"path": "missing\\new.py", "file_text": ""})
         self.denied("create", {"path": "..\\new.py", "file_text": ""})
+
+    def test_repository_discovery_supports_native_patterns_and_protects_writes(self):
+        docs = self.root / "docs" / "designs"
+        docs.mkdir(parents=True)
+        (docs / "Silver.md").write_text("synthetic silver tasks\n", encoding="utf-8")
+        for name, arguments in (
+            ("glob", {"pattern": "docs/**/*Silver*"}),
+            ("functions.glob", {"pattern": "**/*.md", "paths": str(self.root / "docs")}),
+            ("rg", {"pattern": "silver"}),
+            ("rg", {"pattern": "silver", "paths": "docs", "glob": "*.md"}),
+            ("grep", {"pattern": "silver", "path": str(self.root), "type": "md"}),
+            ("view", {"path": str(self.root / "docs")}),
+            ("view", {"path": "docs/designs/Silver.md"}),
+            ("view", {"path": str(self.root / guard.POLICY_PATH)}),
+        ):
+            with self.subTest(name=name, arguments=arguments):
+                self.assertEqual(self.decision(name, arguments), {})
+        self.denied("edit", {
+            "path": str(self.root / guard.POLICY_PATH), "old_str": "1", "new_str": "2",
+        })
+        for arguments in (
+            {"pattern": "../*"}, {"pattern": "docs/../../*"},
+            {"pattern": "**", "paths": str(self.root.parent)},
+            {"pattern": str(self.root.parent / "*")},
+            {"pattern": "{docs,../outside}/**"},
+            {"pattern": "**", "paths": []},
+        ):
+            self.denied("glob", arguments)
+        self.denied("rg", {"pattern": "silver", "paths": ".."})
+        self.denied("rg", {"pattern": "silver", "glob": "../*"})
+
+    def test_directory_discovery_rejects_reparse_points_hardlinks_and_scan_limits(self):
+        actual = Path.lstat
+
+        def reparse(path):
+            info = actual(path)
+            if path == self.file:
+                return mock.Mock(st_mode=info.st_mode, st_file_attributes=0x400)
+            return info
+
+        for name, args in (
+            ("glob", {"pattern": "**/*"}),
+            ("rg", {"pattern": "synthetic", "paths": "."}),
+            ("view", {"path": str(self.root)}),
+        ):
+            with mock.patch.object(Path, "lstat", reparse):
+                self.denied(name, args)
+        alias = self.root / "hardlink.py"
+        os.link(self.file, alias)
+        self.denied("glob", {"pattern": "*.py"})
+        alias.unlink()
+        with mock.patch.object(guard, "MAX_SEARCH_ENTRIES", 1):
+            self.denied("glob", {"pattern": "**/*"})
+
+    def history_arguments(self, query, **changes):
+        return {
+            "query": query, "description": "Read project history", "source": "local",
+            **changes,
+        }
+
+    def test_history_templates_only_return_sessions_for_exact_current_project(self):
+        cwd = str(self.root).replace("'", "''")
+        sessions = (
+            f"SELECT id, summary, updated_at FROM sessions WHERE cwd = '{cwd}' "
+            "ORDER BY updated_at DESC LIMIT 20"
+        )
+        turns = (
+            "SELECT t.session_id, t.user_message, t.assistant_response FROM turns AS t "
+            f"JOIN sessions AS s ON t.session_id = s.id WHERE s.cwd = '{cwd}' "
+            "ORDER BY t.timestamp DESC LIMIT 50"
+        )
+        with sqlite3.connect(":memory:") as db:
+            db.executescript(
+                "CREATE TABLE sessions (id TEXT, summary TEXT, cwd TEXT, updated_at TEXT);"
+                "CREATE TABLE turns (session_id TEXT, user_message TEXT, assistant_response TEXT, timestamp TEXT);"
+            )
+            db.executemany("INSERT INTO sessions VALUES (?, ?, ?, ?)", [
+                ("current", "project", str(self.root), "2026-10-29"),
+                ("other", "other project", str(self.root) + "-other", "2026-10-29"),
+            ])
+            db.executemany("INSERT INTO turns VALUES (?, ?, ?, ?)", [
+                ("current", "project prompt", "project reply", "2026-10-29"),
+                ("other", "other prompt", "other reply", "2026-10-29"),
+            ])
+            for name in ("session_store_sql", "functions.session_store_sql"):
+                for query in (sessions, turns, sessions + ";"):
+                    self.assertEqual(self.decision(name, self.history_arguments(query)), {})
+                    self.assertEqual(len(db.execute(query).fetchall()), 1)
+                    self.assertEqual(db.execute(query).fetchone()[0], "current")
+        for table, order in (
+            ("checkpoints", "created_at"), ("session_files", "first_seen_at"),
+            ("session_refs", "created_at"),
+        ):
+            query = (
+                f"SELECT t.session_id FROM {table} AS t JOIN sessions AS s "
+                f"ON t.session_id=s.id WHERE s.cwd='{cwd}' ORDER BY t.{order} DESC LIMIT 10"
+            )
+            self.assertEqual(self.decision("session_store_sql", self.history_arguments(query)), {})
+
+    def test_history_rejects_unscoped_cloud_cross_project_and_sql_escape_attempts(self):
+        cwd = str(self.root).replace("'", "''")
+        query = (
+            f"SELECT id FROM sessions WHERE cwd='{cwd}' ORDER BY updated_at DESC LIMIT 10"
+        )
+        for unsafe in (
+            "SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 10",
+            query.replace(cwd, cwd + "-other"),
+            query.replace(f"cwd='{cwd}'", f"cwd='{cwd}' OR 1=1"),
+            query + " UNION SELECT id FROM sessions",
+            query + "; SELECT id FROM sessions",
+            query.replace("SELECT id", "SELECT *"),
+            query.replace("SELECT id", "SELECT (SELECT summary FROM sessions)"),
+            query.replace("LIMIT 10", "LIMIT 101"),
+            query.replace("LIMIT 10", "LIMIT 0"),
+            query.replace("LIMIT 10", "LIMIT -1"),
+            query.replace(f"'{cwd}'", "'x' /*"),
+            "ATTACH DATABASE 'other' AS other",
+            "SELECT load_extension('unsafe')",
+            "DELETE FROM sessions",
+            "SELECT t.user_message FROM turns AS t JOIN sessions AS s "
+            f"ON t.session_id=s.id OR 1=1 WHERE s.cwd='{cwd}' "
+            "ORDER BY t.timestamp DESC LIMIT 10",
+            "SELECT t.user_message FROM turns AS t JOIN sessions AS s "
+            f"ON tXsession_id=sXid WHERE s.cwd='{cwd}' "
+            "ORDER BY t.timestamp DESC LIMIT 10",
+        ):
+            self.denied("session_store_sql", self.history_arguments(unsafe))
+        self.denied("session_store_sql", self.history_arguments(query, source="cloud"))
+        args = self.history_arguments(query)
+        del args["source"]
+        self.assertEqual(
+            self.denied("session_store_sql", args)["permissionDecisionReason"],
+            "HISTORY_SCOPE_REQUIRED",
+        )
+
+    def test_only_exact_read_only_git_status_is_allowed(self):
+        for name in ("powershell", "functions.powershell"):
+            for command in (
+                "git --no-pager status --short",
+                "git -c core.fsmonitor=false --no-pager status --short",
+            ):
+                self.assertEqual(self.decision(name, {"command": command}), {})
+                self.denied(name, {"command": command + "; Get-Content secret"})
+                self.denied(name, {"command": command, "mode": "async"})
+        self.denied("powershell", {"command": "git --no-pager diff"})
 
     def test_schema_validation_unknown_fields_types_and_duplicate_paths(self):
         entry = {"path": "sample.py", "category": "source", "sha256": "a" * 64}

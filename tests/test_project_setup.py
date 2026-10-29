@@ -76,6 +76,42 @@ class ProjectWorkspace:
 
 
 class ProjectSetupTests(ProjectWorkspace, unittest.TestCase):
+    def test_shared_instructions_create_append_and_repeated_install_preserve_content(self):
+        template = (ROOT / "AGENTS.md").read_bytes()
+        target = self.project / "AGENTS.md"
+        status, _ = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(0, status)
+        self.assertEqual(template, target.read_bytes())
+        target.write_bytes(b"# Existing project rules\r\nKeep these.\r\n")
+        before = target.read_bytes()
+        status, _ = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(0, status)
+        self.assertEqual(before + b"\n\n" + template, target.read_bytes())
+        installed = target.read_bytes()
+        status, result = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(0, status)
+        self.assertEqual(["INSTRUCTIONS_ALREADY_INSTALLED"], result["codes"])
+        self.assertEqual(installed, target.read_bytes())
+        target.write_bytes(installed.replace(b"Execution was blocked", b"Execution denied"))
+        changed = target.read_bytes()
+        status, result = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(1, status)
+        self.assertEqual(["INSTRUCTIONS_REVIEW_REQUIRED"], result["codes"])
+        self.assertEqual(changed, target.read_bytes())
+
+    def test_instruction_install_rejects_directory_and_hardlink_targets(self):
+        target = self.project / "AGENTS.md"
+        target.mkdir()
+        status, _ = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(1, status)
+        target.rmdir()
+        original = self.project / "original.md"
+        original.write_bytes(b"Keep original instructions")
+        os.link(original, target)
+        status, _ = self.invoke(setup.install_instructions, self.project)
+        self.assertEqual(1, status)
+        self.assertEqual(b"Keep original instructions", original.read_bytes())
+
     def test_manifest_retains_all_fabric_agent_profiles_alongside_hook(self):
         manifest = json.loads((ROOT / "plugin.json").read_text(encoding="utf-8"))
         agents = ROOT / manifest["agents"]
@@ -341,6 +377,35 @@ class WindowsHookTests(ProjectWorkspace, unittest.TestCase):
         self.assertEqual({}, self.invoke_wrapper(plugin, json.dumps(payload)))
         payload["toolName"] = "unknown"
         self.assertEqual("deny", self.invoke_wrapper(plugin, json.dumps(payload))["permissionDecision"])
+
+    def test_real_hook_allows_repo_search_and_project_history_but_not_other_projects(self):
+        self.initialize()
+        plugin = self.make_plugin()
+        docs = self.project / "docs" / "preparationForProduction"
+        docs.mkdir(parents=True)
+        (docs / "Silver.md").write_text("Synthetic task list\n", encoding="utf-8")
+        for name, arguments in (
+            ("glob", {"pattern": "docs/**/*Silver*"}),
+            ("rg", {"pattern": "Synthetic", "paths": "docs", "glob": "*.md"}),
+            ("powershell", {"command": "git --no-pager status --short"}),
+        ):
+            payload = {"cwd": str(self.project), "toolName": name, "toolArgs": arguments}
+            self.assertEqual({}, self.invoke_wrapper(plugin, json.dumps(payload)))
+        cwd = str(self.project).replace("'", "''")
+        query = (
+            f"SELECT id, summary FROM sessions WHERE cwd='{cwd}' "
+            "ORDER BY updated_at DESC LIMIT 20"
+        )
+        payload = {
+            "cwd": str(self.project), "toolName": "session_store_sql",
+            "toolArgs": {"query": query, "description": "Read project history", "source": "local"},
+        }
+        self.assertEqual({}, self.invoke_wrapper(plugin, json.dumps(payload)))
+        payload["toolArgs"]["query"] = query.replace(cwd, cwd + "-other")
+        decision = self.invoke_wrapper(plugin, json.dumps(payload))
+        self.assertEqual("deny", decision["permissionDecision"])
+        self.assertIn("CLI_HISTORY_SCOPE_REQUIRED", decision["permissionDecisionReason"])
+        self.assertNotIn(str(self.project), decision["permissionDecisionReason"])
 
 
 if __name__ == "__main__":

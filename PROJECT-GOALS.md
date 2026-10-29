@@ -25,7 +25,10 @@ and its subdirectories require neither inventory entries nor SHA-256 checks.
 Only external files require individual human approval and matching digests,
 including before edits; changes require reapproval. This applies automatically
 to existing and new projects. Protected control paths and filesystem-alias
-restrictions remain. The operator must keep business data outside the trusted
+restrictions remain for writes; project control files are readable. Scoped
+repository discovery and exact-current-project local session history are
+supported. History scope is enforced through fixed SQL shapes, not a substring
+check; cloud and cross-project history remain denied. The operator must keep business data outside the trusted
 tree; root trust is not content classification or proof of BAA coverage.
 
 These are target goals, not a statement that the current plugin implements
@@ -89,12 +92,12 @@ no automatic exception. Project-local business data is not screened.
 
 | Area | Baseline scope |
 | --- | --- |
-| CLI tool access | Project-root file trust, digest-approved external files, and constrained task-wrapper paths; other capabilities default-deny |
+| CLI tool access | Project-root reads/discovery, digest-approved external files, exact Git status, project-scoped local history templates, and constrained task-wrapper paths; other capabilities default-deny |
 | Fabric agents | Retain targeted solution-building roles alongside the guardrails; review capabilities without granting blanket access |
 | Content classification | No per-file registration or hashes inside the project; external source/synthetic approvals require digests; protected control paths remain blocked |
 | Local development | Reviewed tasks return status without streaming child output; execution is not sandboxed |
 | VS Code | Conservative manually selected profile; no claim of equivalent tool interception |
-| Readiness | Static configuration and drift checks, not certification of runtime enforcement |
+| Readiness | Static configuration and drift checks, not certification of runtime enforcement; current-project history is trusted, not sanitized |
 | Exceptions | Other information categories remain blocked pending a separately reviewed extension |
 
 Implementation and operating guidance:
