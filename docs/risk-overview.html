@@ -123,6 +123,7 @@
   <h2>On this page</h2>
   <ul>
     <li><a href="#overview">At a glance</a></li>
+    <li><a href="#corporate-copilot">Corporate Copilot plan</a></li>
     <li><a href="#exposure-example">HIPAA example</a></li>
     <li><a href="#data-flow">Data flow</a></li>
     <li><a href="#addressed-risks">Controls</a></li>
@@ -146,6 +147,39 @@
     <div class="card stat callout-success"><b>Synthetic diagnostics</b><span>Reviewed synthetic tests can return bounded errors; other tasks default to status-only</span></div>
     <div class="card stat callout-info"><b>9 Fabric agents</b><span>Delivery, architecture, pipeline, operations, semantic-model, quality and review roles remain available</span></div>
   </div>
+</section>
+
+<section id="corporate-copilot">
+  <h2>Corporate recommendation: GitHub Copilot Business</h2>
+  <p class="lead">Use an organization-assigned Copilot Business license as the minimum recommended corporate subscription for this toolkit. This is a governance recommendation, not the minimum plan that can technically run Copilot CLI.</p>
+  <div class="cols">
+    <div class="card callout-success">
+      <strong>Why Business is the right baseline</strong>
+      <p>Business provides centralized license management and administrative control of Copilot features and models. Corporate access can be granted and revoked centrally instead of relying on individually purchased Free, Pro or Pro+ accounts and personal settings. Copilot CLI is included, subject to administrator policy.</p>
+      <p>These controls make Business the lowest conventional corporate subscription tier recommended here; more model usage alone is not a reason to require a higher tier.</p>
+    </div>
+    <div class="card callout-info">
+      <strong>When Enterprise makes sense</strong>
+      <p>Copilot Enterprise includes Business capabilities and adds enterprise capabilities and a larger usage allowance for GitHub Enterprise Cloud customers. Choose it when those additional capabilities are needed, not as a prerequisite for this plugin's privacy gates.</p>
+      <p>Copilot subscriptions and GitHub hosting plans are separate products. Eligible enterprises may also have metered Copilot access arrangements; confirm existing entitlements before buying additional seats.</p>
+    </div>
+  </div>
+  <div class="table-scroll" role="region" aria-label="Corporate Copilot safeguards table" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Safeguard</th><th scope="col">How it helps</th><th scope="col">Boundary or action required</th></tr></thead>
+    <tbody>
+      <tr><td>Central access and policy management</td><td>Administrators manage licenses and availability of features, agents and models, including access to CLI.</td><td>Use the account receiving the corporate license. Check effective policy and multiple-organization licensing; some policy combinations use the least restrictive setting.</td></tr>
+      <tr><td>Corporate data-processing commitments</td><td>For direct volume-licensed purchases, GitHub's Generative AI Services Terms prohibit using inputs/outputs to train generative AI models unless the customer gives documented instructions to do so. Purchases through Microsoft follow the applicable Microsoft agreement.</td><td>No training does not mean no transmission, no retention or no subprocessors. Legal/security teams must review the applicable DPA, purchase channel, features, model providers and retention terms. Previews can have separate terms.</td></tr>
+      <tr><td>Feature and model governance</td><td>Administrators can restrict available capabilities and models, reducing unreviewed features and integrations.</td><td>Configure policies deliberately and review changes. Not every policy applies to CLI; use GitHub's supported-surfaces matrix. Policy availability does not prove a specific model route is approved.</td></tr>
+      <tr><td>Content exclusion in supported experiences</td><td>Repository/organization exclusions can reduce access to selected content where GitHub supports the feature.</td><td><strong>Not supported in Copilot CLI or IDE Agent mode.</strong> Do not treat exclusions as this toolkit's CLI data barrier or as a substitute for keeping business data out of the project.</td></tr>
+      <tr><td>Local permissions plus this plugin</td><td>CLI permissions provide action approval controls; this plugin adds narrow tool/argument gates, external-file review and constrained synthetic testing.</td><td>Use reviewed permissions, least-privilege identities and curated files. Do not blanket-approve tools. The plugin remains cooperative, and actual client/child-hook enforcement must be tested.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note"><strong>A corporate license is not a BAA boundary.</strong> Neither Business nor an upgrade to Enterprise, by itself, authorizes sending PHI, business rows or secrets to Copilot. Keep that content out of prompts, attachments, project files and tool output unless the exact service/model path is independently approved under the organization's agreements. Public-code matching filters address code/IP concerns, not business-data redaction, and are not supported in CLI according to GitHub's policy matrix.</div>
+  <p><strong>CLI release requirement is separate from the plan.</strong> Use an organization-approved, supported Copilot CLI release with plugin command hooks. This repository has not established a lowest compatible CLI release number or verified end-to-end enforcement in the actual client. Before deployment, record the exact release, confirm plugin/hook loading and test allowed and denied synthetic calls, including child agents and failure/timeout paths; repeat after updates. A version number or passing static preflight alone is not assurance.</p>
+  <p><strong>Administrator baseline:</strong> assign corporate licenses; approve the required CLI/model capabilities; leave unnecessary previews, cloud delegation and integrations disabled where supported; review policy changes and audit logs; and validate the installed plugin in the target environment. Do not assume the local hook protects other Copilot surfaces.</p>
+  <p>Plan and policy references checked on <time datetime="2026-11-02">November 2, 2026</time>: <a href="https://docs.github.com/en/copilot/get-started/plans">Copilot plans</a>, <a href="https://docs.github.com/en/copilot/concepts/enterprise/policies">enterprise/organization policies</a>, <a href="https://docs.github.com/en/copilot/reference/supported-surfaces-for-policies">policy coverage by surface</a>, <a href="https://docs.github.com/en/copilot/how-tos/configure-content-exclusion/exclude-content-from-copilot">content-exclusion limits</a>, <a href="https://github.com/customer-terms/github-generative-ai-services-terms">Generative AI Services Terms</a>, and <a href="https://github.com/features/copilot/plans">plan and privacy FAQ</a>. Offerings and terms can change; confirm them during procurement.</p>
 </section>
 
 <section id="exposure-example">
@@ -399,7 +433,7 @@
   <p>Content reviewed against the current local implementation on <time datetime="2026-10-29">October 29, 2026</time>. This describes the working tree, not proof that an installed or published plugin has these changes.</p>
   <ul>
     <li><strong>Synthetic regression suite:</strong> 68 tests ran; 67 passed and 1 was skipped because symlink creation was unavailable. Includes real PowerShell-hook invocations, packaging checks and offline Osmos boundary cases.</li>
-    <li><strong>Page checks:</strong> all 11 section links, unique anchors, desktop sticky navigation, keyboard skip link, fixed light appearance regardless of system theme or URL theme parameters, 320/390/768-pixel layouts, table scrolling and print navigation were checked in headless Edge. Red is reserved for warning/caution content; ordinary headings and navigation use blue. No browser errors or external network requests were observed.</li>
+    <li><strong>Page checks:</strong> all 12 section links, unique anchors, desktop sticky navigation, keyboard skip link, fixed light appearance regardless of system theme or URL theme parameters, 320/390/768-pixel layouts, table scrolling and print navigation were checked in headless Edge. Red is reserved for warning/caution content; ordinary headings and navigation use blue. No browser errors or external network requests were observed.</li>
     <li><strong>MCP protocol:</strong> the pinned server exposed exactly 13 reviewed tools; offline documentation worked and unexposed query/download/create calls were rejected. No customer data queries were executed.</li>
     <li><strong>Not established:</strong> actual Copilot plugin-server discovery/dispatch, runtime skill loading, child-hook inheritance, plugin coexistence, model routing, contractual coverage and live Osmos transport.</li>
     <li><strong>Required before use:</strong> review the target environment, update the installed plugin and guidance, and verify allowed/denied synthetic calls in a fresh client. Static preflight is not runtime enforcement evidence.</li>
